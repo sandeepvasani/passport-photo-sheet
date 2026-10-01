@@ -148,7 +148,7 @@ export default function App() {
       const m = analysis.markers ?? vision.defaultMarkers(image)
       setSession({ image, analysis })
       setMarkers(m)
-      setCrop(autoFit(m, spec))
+      setCrop(autoFit(m, spec, image))
       // Always start from the original photo; replacing the background is an opt-in edit.
       setBg(defaultBackground(spec))
       setMatte(null)
@@ -168,7 +168,7 @@ export default function App() {
     const next = PHOTO_SPECS.find((s) => s.id === id)
     if (!next) return
     setSpecId(id)
-    if (markers) setCrop(autoFit(markers, next))
+    if (markers) setCrop(autoFit(markers, next, session?.image))
     setBg((b) => ({ ...b, color: next.backgrounds[0].color }))
     setAttest({})
     setAckWarnings(false)
@@ -176,7 +176,7 @@ export default function App() {
 
   const onMarkers = (m: Markers, done: boolean) => {
     setMarkers(m)
-    if (done && autoRefit) setCrop(autoFit(m, spec))
+    if (done && autoRefit) setCrop(autoFit(m, spec, session?.image))
   }
 
   const download = async (kind: 'sheet' | 'photo') => {
@@ -237,12 +237,12 @@ export default function App() {
             onMarkers={onMarkers}
             autoRefit={autoRefit}
             onAutoRefit={setAutoRefit}
-            onAutoFit={() => setCrop(autoFit(markers, spec))}
+            onAutoFit={() => setCrop(autoFit(markers, spec, session.image))}
             onResetMarkers={() => {
               const m = session.analysis.markers
               if (m) {
                 setMarkers(m)
-                setCrop(autoFit(m, spec))
+                setCrop(autoFit(m, spec, session.image))
               }
             }}
             onBack={() => goto('upload')}

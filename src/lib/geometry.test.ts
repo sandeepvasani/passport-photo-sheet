@@ -78,6 +78,37 @@ describe('autoFit', () => {
   })
 })
 
+describe('autoFit with a tight (selfie-like) photo', () => {
+  // Head 600 px tall in a narrow 712 px wide photo: a mid-size head would need a ~1000 px wide frame.
+  const tight = { width: 712, height: 950 }
+  const m: Markers = {
+    eyeLeft: { x: 306, y: 400 },
+    eyeRight: { x: 406, y: 400 },
+    crown: { x: 356, y: 100 },
+    chin: { x: 356, y: 700 },
+  }
+
+  it('grows the head within the allowed range to keep the frame inside the photo', () => {
+    const plain = autoFit(m, US_PASSPORT)
+    const fitted = autoFit(m, US_PASSPORT, tight)
+    expect(uncoveredFraction(fitted, US_PASSPORT, tight.width, tight.height)).toBeLessThan(
+      uncoveredFraction(plain, US_PASSPORT, tight.width, tight.height),
+    )
+    const r = measure(m, fitted, US_PASSPORT)
+    expect(r.headHeightMm).toBeLessThanOrEqual(US_PASSPORT.headHeightMm.max)
+    expect(r.headHeightMm).toBeGreaterThan(measure(m, plain, US_PASSPORT).headHeightMm)
+  })
+
+  it('leaves well-framed photos at the mid-range targets', () => {
+    const roomy = { width: 4000, height: 4000 }
+    const shift = (p: { x: number; y: number }) => ({ x: p.x + 1600, y: p.y + 1600 })
+    const centred: Markers = { eyeLeft: shift(m.eyeLeft), eyeRight: shift(m.eyeRight), crown: shift(m.crown), chin: shift(m.chin) }
+    const a = measure(centred, autoFit(centred, US_PASSPORT), US_PASSPORT)
+    const b = measure(centred, autoFit(centred, US_PASSPORT, roomy), US_PASSPORT)
+    expect(b.headHeightMm).toBeCloseTo(a.headHeightMm, 6)
+  })
+})
+
 describe('transformCropAbout', () => {
   it('keeps the pivot fixed in the frame while zooming and rotating', () => {
     const crop = { cx: 1500, cy: 1500, angle: 0.05, pxPerMm: 25 }

@@ -8,10 +8,17 @@ export interface LoadedImage {
   originalWidth: number
   originalHeight: number
   name: string
+  /**
+   * Smaller, GPU-friendly copy for the interactive editor. The working canvas
+   * is kept CPU-side for fast pixel reads, which makes it slow to draw every frame.
+   */
+  preview: ImageBitmap | HTMLCanvasElement
 }
 
 /** Largest working-image side; keeps us under mobile Safari's canvas limits. */
 const MAX_WORKING_SIDE = 4096
+/** Largest side of the editor preview: enough for a sharp ~1200 px editor canvas. */
+const PREVIEW_SIDE = 2048
 
 export function createCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas')
@@ -63,6 +70,7 @@ export async function loadImageFile(file: File): Promise<LoadedImage> {
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(src, 0, 0, canvas.width, canvas.height)
   if ('close' in src) src.close()
+  const preview = await makePreview(canvas)
   return {
     canvas,
     width: canvas.width,
@@ -71,6 +79,22 @@ export async function loadImageFile(file: File): Promise<LoadedImage> {
     originalWidth: ow,
     originalHeight: oh,
     name: file.name,
+    preview,
+  }
+}
+
+async function makePreview(canvas: HTMLCanvasElement): Promise<ImageBitmap | HTMLCanvasElement> {
+  const scale = Math.min(1, PREVIEW_SIDE / Math.max(canvas.width, canvas.height))
+  const small = createCanvas(canvas.width * scale, canvas.height * scale)
+  // Default (GPU-backed) context: this canvas is only ever drawn, never read.
+  const ctx = small.getContext('2d')
+  if (!ctx) return canvas
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(canvas, 0, 0, small.width, small.height)
+  try {
+    return await createImageBitmap(small)
+  } catch {
+    return small
   }
 }
 

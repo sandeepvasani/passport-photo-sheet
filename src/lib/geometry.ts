@@ -116,9 +116,10 @@ export function eyeLineAngle(markers: Markers): number {
 /**
  * Computes the crop that levels the eyes, centres the face and picks the head
  * size / vertical position closest to the spec's targets while respecting
- * every hard range.
+ * every hard range. With `image`, it also keeps as much of the frame inside the
+ * photo as the ranges allow (close-up selfies leave little room around the head).
  */
-export function autoFit(markers: Markers, spec: PhotoSpec): Crop {
+export function autoFit(markers: Markers, spec: PhotoSpec, image?: { width: number; height: number }): Crop {
   const angle = eyeLineAngle(markers)
   const { uy } = axes(angle)
   const eyes = midpoint(markers.eyeLeft, markers.eyeRight)
@@ -136,15 +137,28 @@ export function autoFit(markers: Markers, spec: PhotoSpec): Crop {
   const topR = spec.topMarginMm
   const minTop = topR?.min ?? 1
 
+  const cropFor = (headMm: number, eyeV: number): Crop => {
+    const pxPerMm = headPx / headMm
+    // Eyes sit on the vertical centre line at height eyeV.
+    const offset = (eyeV - H / 2) * pxPerMm
+    return { cx: eyes.x - offset * uy.x, cy: eyes.y - offset * uy.y, angle, pxPerMm }
+  }
+
+  // Search slightly inside each range, so small marker errors can't push the result out of spec.
+  const inset = (r: { min: number; max: number }, t: number) => {
+    const m = (r.max - r.min) * 0.04
+    return r.min + m + (r.max - r.min - 2 * m) * t
+  }
+
   let best = { cost: Infinity, headMm: headTarget, eyeV: H / 2 }
   const steps = 48
   for (let i = 0; i <= steps; i++) {
-    const headMm = head.min + ((head.max - head.min) * i) / steps
+    const headMm = inset(head, i / steps)
     for (let j = 0; j <= steps; j++) {
       let eyeV: number
       let posCost: number
       if (eyeR) {
-        const eb = eyeR.min + ((eyeR.max - eyeR.min) * j) / steps
+        const eb = inset(eyeR, j / steps)
         eyeV = H - eb
         posCost = ((eb - rangeTarget(eyeR)) / (eyeR.max - eyeR.min)) ** 2
       } else if (topR) {
@@ -161,19 +175,35 @@ export function autoFit(markers: Markers, spec: PhotoSpec): Crop {
       if (crownV < minTop) cost += 50 + 50 * (minTop - crownV) ** 2
       if (topR && crownV > topR.max) cost += 5 * (crownV - topR.max) ** 2
       if (chinV > H) cost += 100
+      // Blank frame area outweighs any preference for mid-range values.
+      if (image && cost < best.cost) cost += 10 * overhangMm(cropFor(headMm, eyeV), spec, image.width, image.height)
       if (cost < best.cost) best = { cost, headMm, eyeV }
     }
   }
 
-  const pxPerMm = headPx / best.headMm
-  // Eyes sit on the vertical centre line at height eyeV.
-  const offset = (best.eyeV - H / 2) * pxPerMm
-  return { cx: eyes.x - offset * uy.x, cy: eyes.y - offset * uy.y, angle, pxPerMm }
+  return cropFor(best.headMm, best.eyeV)
+}
+
+/** How far (mm of finished photo, summed over the four image edges) the frame reaches past the photo. */
+export function overhangMm(crop: Crop, spec: PhotoSpec, imgW: number, imgH: number): number {
+  const corners = [
+    { x: 0, y: 0 },
+    { x: spec.widthMm, y: 0 },
+    { x: 0, y: spec.heightMm },
+    { x: spec.widthMm, y: spec.heightMm },
+  ].map((q) => frameToSource(q, crop, spec))
+  const xs = corners.map((p) => p.x)
+  const ys = corners.map((p) => p.y)
+  const over =
+    Math.max(0, -Math.min(...xs)) +
+    Math.max(0, Math.max(...xs) - imgW) +
+    Math.max(0, -Math.min(...ys)) +
+    Math.max(0, Math.max(...ys) - imgH)
+  return over / crop.pxPerMm
 }
 
 /** Fraction of the frame (0–1) that falls outside the source image, sampled on a grid. */
-export function uncoveredFraction(crop: Crop, spec: PhotoSpec, imgW: number, imgH: number): number {
-  const n = 24
+export function uncoveredFraction(crop: Crop, spec: PhotoSpec, imgW: number, imgH: number, n = 24): number {
   let outside = 0
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {

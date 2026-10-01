@@ -37,7 +37,7 @@ npm run e2e -- test-images/portrait.jpg us-2x2 "4 × 6"
 
 `scripts/inspect-matte.mjs` renders the original, result and masks side by side, for checking hair edges against the dev server.
 
-This drives the whole flow in Chrome through Playwright. It saves screenshots and the downloaded files to `e2e-output/`. Set `REPLACE_BG=1` to force background replacement, and `MOBILE=1` to use a phone viewport. The test images in `test-images/` are public-domain US government portraits (White House and NASA). [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs) generates the plain-background and no-face variants.
+This drives the whole flow in Chrome through Playwright. It saves screenshots and the downloaded files to `e2e-output/`. Set `REPLACE_BG=1` to force background replacement, and `MOBILE=1` to use a phone viewport. The test images in `test-images/` are public-domain US government portraits (White House and NASA). [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs) generates the plain-background and no-face variants. [`scripts/make-selfie-fixtures.mjs`](scripts/make-selfie-fixtures.mjs) generates a close-up selfie and a copy stored sideways with EXIF orientation, as phones do. Set `ENGINE=webkit` to run in Safari's engine; install it once with `npx playwright install webkit`.
 
 ## Deploying
 

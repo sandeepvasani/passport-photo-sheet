@@ -42,62 +42,45 @@ interface EditorProps {
   onMarkers: (m: Markers, done: boolean) => void
 }
 
-function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorProps) {
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [cssW, setCssW] = useState(460)
-  const [cursor, setCursor] = useState('grab')
+interface View {
+  cssW: number
+  cssH: number
+  frameW: number
+  frameH: number
+  pad: number
+  /** CSS pixels per millimetre of finished photo. */
+  vs: number
+}
 
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    const ro = new ResizeObserver(([entry]) => setCssW(Math.max(240, Math.min(600, Math.floor(entry.contentRect.width)))))
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
+function viewFor(cssW: number, spec: PhotoSpec): View {
   const frameW = cssW / (1 + 2 * PAD)
   const vs = frameW / spec.widthMm
   const frameH = spec.heightMm * vs
   const pad = PAD * frameW
-  const cssH = frameH + 2 * pad
+  return { cssW, cssH: frameH + 2 * pad, frameW, frameH, pad, vs }
+}
 
-  // Latest values for event handlers (pointer events can outpace re-renders).
-  const live = useRef({ crop, markers })
-  useLayoutEffect(() => {
-    live.current = { crop, markers }
-  })
-  const pointers = useRef(new Map<number, Point>())
-  const drag = useRef<Drag | null>(null)
-
-  const toView = (p: Point) => viewOf(p, live.current.crop, spec, vs, pad)
-  const viewToMm = (v: Point) => ({ x: (v.x - pad) / vs, y: (v.y - pad) / vs })
-
-  const setCrop = (c: Crop) => {
-    live.current.crop = c
-    onCrop(c)
-  }
-  const setMarkers = (m: Markers, done: boolean) => {
-    live.current.markers = m
-    onMarkers(m, done)
-  }
-
-  useLayoutEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.round(cssW * dpr)
-    canvas.height = Math.round(cssH * dpr)
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = '#23262e'
-    ctx.fillRect(0, 0, cssW, cssH)
+/** Draws the editor: photo, dimmed surround, guides and markers. `fast` trades smoothing for speed mid-gesture. */
+function drawEditor(
+  ctx: CanvasRenderingContext2D,
+  image: LoadedImage,
+  spec: PhotoSpec,
+  crop: Crop,
+  markers: Markers,
+  view: View,
+  dpr: number,
+  fast: boolean,
+) {
+  const { cssW, cssH, frameW, frameH, pad, vs } = view
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.fillStyle = '#23262e'
+  ctx.fillRect(0, 0, cssW, cssH)
 
     ctx.save()
     ctx.transform(...sourceToOutputTransform(crop, spec, vs, pad, pad))
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(image.canvas, 0, 0)
+    // The editor draws a downscaled preview (scaled back up to working-image coordinates).
+    ctx.imageSmoothingQuality = fast ? 'low' : 'high'
+    ctx.drawImage(image.preview, 0, 0, image.width, image.height)
     ctx.restore()
 
     // Dim everything outside the photo frame.
@@ -207,7 +190,114 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     ctx.textAlign = 'center'
     ctx.fillText(`head ${formatLength(m.headHeightMm, spec.displayUnit)}`, 0, 0)
     ctx.restore()
-  }, [image, spec, crop, markers, cssW, cssH, frameW, frameH, pad, vs])
+}
+
+function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorProps) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [cssW, setCssW] = useState(460)
+  const [cursor, setCursor] = useState('grab')
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => setCssW(Math.max(240, Math.min(600, Math.floor(entry.contentRect.width)))))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const view = viewFor(cssW, spec)
+  // Higher densities cost a lot of fill rate on phones for little visible gain here.
+  const dpr = Math.min(2, window.devicePixelRatio || 1)
+
+  // Gestures update `live` immediately and draw once per animation frame; the
+  // parent is told about changes at most once per frame too.
+  const live = useRef({ crop, markers })
+  const sent = useRef({ crop, markers })
+  const pending = useRef<{ crop?: Crop; markers?: Markers }>({})
+  const props = useRef({ image, spec, view, dpr, onCrop, onMarkers })
+  const raf = useRef(0)
+  const interacting = useRef(false)
+  const wheelTimer = useRef(0)
+  const pointers = useRef(new Map<number, Point>())
+  const drag = useRef<Drag | null>(null)
+
+  const draw = () => {
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    const p = props.current
+    const w = Math.round(p.view.cssW * p.dpr)
+    const h = Math.round(p.view.cssH * p.dpr)
+    // Resizing a canvas reallocates and clears it, so only do it when the size really changes.
+    if (canvas.width !== w) canvas.width = w
+    if (canvas.height !== h) canvas.height = h
+    drawEditor(ctx, p.image, p.spec, live.current.crop, live.current.markers, p.view, p.dpr, interacting.current)
+  }
+
+  const flush = () => {
+    const { crop: c, markers: m } = pending.current
+    pending.current = {}
+    if (c) {
+      sent.current.crop = c
+      props.current.onCrop(c)
+    }
+    if (m) {
+      sent.current.markers = m
+      props.current.onMarkers(m, false)
+    }
+  }
+
+  const schedule = () => {
+    if (raf.current) return
+    raf.current = requestAnimationFrame(() => {
+      raf.current = 0
+      flush()
+      draw()
+    })
+  }
+
+  useLayoutEffect(() => {
+    props.current = { image, spec, view, dpr, onCrop, onMarkers }
+    // Adopt changes that came from outside (sliders, auto-fit), not echoes of our own updates.
+    if (crop !== sent.current.crop) live.current.crop = sent.current.crop = crop
+    if (markers !== sent.current.markers) live.current.markers = sent.current.markers = markers
+    schedule()
+  })
+
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(raf.current)
+      clearTimeout(wheelTimer.current)
+    },
+    [],
+  )
+
+  const { vs, pad, frameW } = view
+  const toView = (pt: Point) => viewOf(pt, live.current.crop, spec, vs, pad)
+  const viewToMm = (v: Point) => ({ x: (v.x - pad) / vs, y: (v.y - pad) / vs })
+
+  const setCrop = (c: Crop) => {
+    live.current.crop = c
+    pending.current.crop = c
+    schedule()
+  }
+  const setMarkers = (m: Markers, done: boolean) => {
+    live.current.markers = m
+    if (done) {
+      pending.current.markers = undefined
+      flush()
+      sent.current.markers = m
+      props.current.onMarkers(m, true)
+    } else {
+      pending.current.markers = m
+    }
+    schedule()
+  }
+
+  const updateCursor = (next: string) => {
+    if (next !== cursor) setCursor(next)
+  }
 
   const localPoint = (e: React.PointerEvent | WheelEvent): Point => {
     const rect = canvasRef.current!.getBoundingClientRect()
@@ -222,7 +312,7 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
       ['crown', toView(m.crown)],
       ['chin', toView(m.chin)],
     ]
-    for (const [key, p] of pts) if (Math.hypot(v.x - p.x, v.y - p.y) < 14) return key
+    for (const [key, pt] of pts) if (Math.hypot(v.x - pt.x, v.y - pt.y) < 14) return key
     if (v.x >= pad && v.x <= pad + frameW) {
       for (const key of ['crown', 'chin'] as const) {
         if (Math.abs(v.y - toView(m[key]).y) < 7) return key
@@ -231,10 +321,14 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     return null
   }
 
+  const cursorFor = (key: MarkerKey | null, active: boolean) =>
+    key ? (key === 'crown' || key === 'chin' ? 'ns-resize' : 'move') : active ? 'grabbing' : 'grab'
+
   const eyesMid = () => midpoint(live.current.markers.eyeLeft, live.current.markers.eyeRight)
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId)
+    interacting.current = true
     const v = localPoint(e)
     pointers.current.set(e.pointerId, v)
     if (pointers.current.size === 2) {
@@ -250,15 +344,14 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     }
     const key = hitTest(v)
     drag.current = key ? { kind: 'marker', key } : { kind: 'pan', last: v }
-    setCursor(key ? (key === 'crown' || key === 'chin' ? 'ns-resize' : 'move') : 'grabbing')
+    updateCursor(cursorFor(key, true))
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     const v = localPoint(e)
     const d = drag.current
     if (!d) {
-      const key = hitTest(v)
-      setCursor(key ? (key === 'crown' || key === 'chin' ? 'ns-resize' : 'move') : 'grab')
+      if (e.pointerType === 'mouse') updateCursor(cursorFor(hitTest(v), false))
       return
     }
     pointers.current.set(e.pointerId, v)
@@ -272,8 +365,8 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
       const dy = v.y - d.last.y
       d.last = v
       const { ux, uy } = axes(c.angle)
-      const s = c.pxPerMm / vs
-      setCrop({ ...c, cx: c.cx - (dx * ux.x + dy * uy.x) * s, cy: c.cy - (dx * ux.y + dy * uy.y) * s })
+      const k = c.pxPerMm / vs
+      setCrop({ ...c, cx: c.cx - (dx * ux.x + dy * uy.x) * k, cy: c.cy - (dx * ux.y + dy * uy.y) * k })
     } else {
       const q = viewToMm(v)
       if (d.key === 'crown' || d.key === 'chin') q.x = sourceToFrame(m[d.key], c, spec).x
@@ -286,24 +379,38 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     const d = drag.current
     if (d?.kind === 'marker') setMarkers(live.current.markers, true)
     drag.current = null
-    setCursor('grab')
+    if (pointers.current.size === 0) {
+      interacting.current = false
+      schedule() // final full-quality redraw
+    }
+    updateCursor('grab')
   }
 
   // Wheel / trackpad zoom around the pointer (needs a non-passive listener).
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const onWheel = (e: WheelEvent) => {
+  const onWheelRef = useRef<(e: WheelEvent) => void>(() => {})
+  useLayoutEffect(() => {
+    onWheelRef.current = (e: WheelEvent) => {
       e.preventDefault()
+      interacting.current = true
+      clearTimeout(wheelTimer.current)
+      wheelTimer.current = window.setTimeout(() => {
+        interacting.current = false
+        schedule()
+      }, 150)
       const v = localPoint(e)
       const c = live.current.crop
       const pivot = frameToSource(viewToMm(v), c, spec)
       const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015))
       setCrop(transformCropAbout(c, pivot, factor, 0))
     }
+  })
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const onWheel = (e: WheelEvent) => onWheelRef.current(e)
     canvas.addEventListener('wheel', onWheel, { passive: false })
     return () => canvas.removeEventListener('wheel', onWheel)
-  })
+  }, [])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const c = live.current.crop
@@ -326,7 +433,7 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
       <canvas
         ref={canvasRef}
         className="editor__canvas"
-        style={{ width: cssW, height: cssH, cursor }}
+        style={{ width: view.cssW, height: view.cssH, cursor }}
         tabIndex={0}
         aria-label="Photo crop editor. Drag to move the photo, use arrow keys to nudge, plus and minus to zoom."
         onPointerDown={onPointerDown}

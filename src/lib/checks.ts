@@ -140,14 +140,16 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
 
   const uncovered = uncoveredFraction(crop, spec, image.width, image.height)
   if (uncovered > 0.002) {
+    const pct = Math.max(1, Math.round(uncovered * 100))
+    const tooClose = 'This usually means the photo was taken too close, which is common with selfies. Retake it from about 4 ft (1.2 m) away, or ask someone else to take it.'
     out.push({
       id: 'coverage',
       label: 'Photo fills the frame',
       status: bg.mode === 'replace' ? 'warn' : 'fail',
       detail:
         bg.mode === 'replace'
-          ? `${(uncovered * 100).toFixed(0)}% of the frame is past the edge of your photo and is filled with the background colour.`
-          : `${(uncovered * 100).toFixed(0)}% of the frame is past the edge of your photo. Move or zoom the photo, or replace the background.`,
+          ? `${pct}% of the frame is past the edge of your photo and is filled with the background colour. ${tooClose}`
+          : `${pct}% of the frame is past the edge of your photo. ${tooClose}`,
     })
   }
 

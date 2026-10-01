@@ -4,14 +4,21 @@
 //   node scripts/e2e.mjs test-images/portrait.jpg [spec-id] [print-id]
 import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { chromium } from 'playwright'
+import { chromium, webkit } from 'playwright'
 
 const [, , imagePath = 'test-images/portrait.jpg', specId = 'us-2x2', printLabel = '4 × 6'] = process.argv
 const url = process.env.APP_URL ?? 'http://localhost:4173/'
-const out = join('e2e-output', `${basename(imagePath).replace(/\.\w+$/, '')}-${specId}${process.env.MOBILE ? '-mobile' : ''}`)
+const out = join(
+  'e2e-output',
+  `${basename(imagePath).replace(/\.\w+$/, '')}-${specId}${process.env.MOBILE ? '-mobile' : ''}${process.env.ENGINE === 'webkit' ? '-webkit' : ''}`,
+)
 await mkdir(out, { recursive: true })
 
-const browser = await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
+// ENGINE=webkit runs Safari's engine; otherwise installed Chrome (PW_CHANNEL=bundled for Playwright's Chromium).
+const browser =
+  process.env.ENGINE === 'webkit'
+    ? await webkit.launch()
+    : await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
 const page = await browser.newPage(
   process.env.MOBILE
     ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, acceptDownloads: true }

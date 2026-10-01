@@ -111,6 +111,10 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
                 </button>
               </div>
               <p className="muted small">JPEG, PNG or WebP. Your photo never leaves this device.</p>
+              <p className="muted small mobile-only">
+                Selfies are usually too close to fit a passport frame. Prop the phone up about 4 ft (1.2 m) away and use the timer, or ask someone to
+                take it.
+              </p>
             </>
           )}
           <input
