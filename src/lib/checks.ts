@@ -2,7 +2,7 @@ import { formatLength, formatRange, type PhotoSpec } from '../config/photoSpecs'
 import { measure, sourceToFrame, uncoveredFraction, type Crop, type Markers, type Point } from './geometry'
 import { ctx2d, type LoadedImage } from './image'
 import type { BackgroundSettings, RenderedPhoto } from './render'
-import type { FaceAnalysis } from './vision'
+import type { EyewearAnalysis, FaceAnalysis } from './vision'
 
 export type CheckStatus = 'pass' | 'warn' | 'fail'
 
@@ -288,6 +288,55 @@ export function backgroundCheck(
 
 const mean = (a: number[]) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0)
 
+/** Glasses, lens reflections and tinted lenses, judged against the spec's glasses rule. */
+export function eyewearChecks(spec: PhotoSpec, eyewear: EyewearAnalysis | null): CheckResult[] {
+  if (!eyewear) return []
+  if (!eyewear.detected) {
+    return [{ id: 'glasses', label: spec.glasses === 'allowed' ? 'Glasses' : 'No glasses', status: 'pass', detail: 'No glasses detected' }]
+  }
+  if (spec.glasses === 'forbidden') {
+    return [
+      {
+        id: 'glasses',
+        label: 'No glasses',
+        status: 'fail',
+        detail: 'Glasses detected. Take them off and retake the photo; they’re only allowed with a signed medical statement.',
+      },
+    ]
+  }
+  if (spec.glasses === 'discouraged') {
+    return [
+      {
+        id: 'glasses',
+        label: 'No glasses',
+        status: 'warn',
+        detail: 'Glasses detected. Many countries don’t accept glasses in passport photos, so check your country’s rules or retake without them.',
+      },
+    ]
+  }
+  const out: CheckResult[] = [
+    { id: 'glasses', label: 'Glasses', status: 'pass', detail: 'Glasses detected: allowed if your eyes are clearly visible' },
+  ]
+  const glare = eyewear.glareShare
+  out.push({
+    id: 'glare',
+    label: 'No glare on glasses',
+    status: glare > 0.03 ? 'fail' : glare > 0.01 ? 'warn' : 'pass',
+    detail:
+      glare > 0.01
+        ? 'There’s a reflection on your glasses. Turn off the flash, tilt your head slightly up or down, or move the light to the side and retake.'
+        : 'No reflections on the lenses',
+  })
+  const tinted = eyewear.lensBrightness < 0.45
+  out.push({
+    id: 'tint',
+    label: 'Clear lenses',
+    status: tinted ? 'fail' : 'pass',
+    detail: tinted ? 'Your lenses look tinted or dark. Wear clear glasses, or take them off.' : 'Lenses look clear',
+  })
+  return out
+}
+
 /** Full compliance check of the finished photo. */
 export function runChecks(input: CheckInput): CheckResult[] {
   const { spec, image, analysis, markers, crop, bg, photo } = input
@@ -357,6 +406,8 @@ export function runChecks(input: CheckInput): CheckResult[] {
     }
   }
 
+  results.push(...eyewearChecks(spec, analysis.eyewear))
+
   if (analysis.pose) {
     // Pitch estimates also shift with camera height, so they're held to a looser standard.
     const yaw = Math.abs(analysis.pose.yaw)
@@ -422,7 +473,7 @@ export function runChecks(input: CheckInput): CheckResult[] {
       const [mr, mg, mb] = face.rgb
       const tinted = mb > mr * 0.85 || mg > mr * 0.95
       results.push({
-        id: 'tint',
+        id: 'skin-tone',
         label: 'Natural skin tones',
         status: tinted ? 'warn' : 'pass',
         detail: tinted

@@ -7,7 +7,7 @@ import { LayoutStep } from './components/LayoutStep'
 import { UploadStep } from './components/UploadStep'
 import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
 import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSizes'
-import { backgroundCheck, runChecks, type CheckResult } from './lib/checks'
+import { backgroundCheck, eyewearChecks, runChecks, type CheckResult } from './lib/checks'
 import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
 import { canvasToJpeg, ctx2d, downloadBlob, loadImageFile, type LoadedImage } from './lib/image'
 import { computeLayout, type LayoutMode } from './lib/layout'
@@ -233,6 +233,7 @@ export default function App() {
             crop={crop}
             bg={bg}
             hasDetection={!!session.analysis.markers}
+            earlyIssues={eyewearChecks(spec, session.analysis.eyewear).filter((r) => r.status !== 'pass')}
             onCrop={setCrop}
             onMarkers={onMarkers}
             autoRefit={autoRefit}

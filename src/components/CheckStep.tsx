@@ -1,5 +1,5 @@
 import type { PhotoSpec } from '../config/photoSpecs'
-import { WALGREENS_PRINTS_URL, type PrintSize } from '../config/printSizes'
+import { PRINT_DPI, WALGREENS_PRINTS_URL, type PrintSize } from '../config/printSizes'
 import type { CheckResult } from '../lib/checks'
 import type { RenderedPhoto } from '../lib/render'
 import { CanvasPreview, CheckList } from './common'
@@ -66,7 +66,11 @@ export function CheckStep(props: Props) {
               </a>{' '}
               and choose <strong>{print.label}</strong> prints.
             </li>
-            <li>Upload the sheet. The file already has the exact {print.label} proportions, so in the crop preview make sure the whole image is selected.</li>
+            <li>
+              Upload the sheet. It’s {Math.round(print.widthIn * PRINT_DPI)} × {Math.round(print.heightIn * PRINT_DPI)} pixels, which is exactly{' '}
+              {print.label} in at Walgreens’ {PRINT_DPI} DPI, so every photo prints at exactly {spec.sizeLabel}. If the order screen offers
+              cropping, keep the whole image selected, and turn off any auto-enhance.
+            </li>
             <li>Pick matte or glossy, then choose same-day pickup or delivery.</li>
             <li>At home, cut along the grey lines and measure one photo with a ruler: it should be exactly {spec.sizeLabel}.</li>
           </ol>

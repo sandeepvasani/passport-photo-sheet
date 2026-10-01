@@ -39,7 +39,9 @@ await page.getByRole('heading', { name: 'Crop & position' }).waitFor({ timeout: 
 console.log(`analysis took ${Date.now() - t0} ms`)
 await page.waitForTimeout(300)
 await page.screenshot({ path: join(out, '2-crop.png'), fullPage: true })
-console.log('crop measurements:', await page.locator('.checks').innerText())
+const lists = page.locator('.checks')
+if ((await lists.count()) > 1) console.log('early issues:', await lists.first().innerText())
+console.log('crop measurements:', await lists.last().innerText())
 
 await page.getByRole('button', { name: /Next: Background/ }).click()
 await page.waitForTimeout(800)

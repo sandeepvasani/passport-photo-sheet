@@ -18,6 +18,23 @@ export interface FaceAnalysis {
   masks: MaskLayer[]
   /** The hair reaches the edge of the original photo, so the crown may be cut off. */
   crownAtImageEdge: boolean
+  /** Glasses, reflections and tint around the eyes; null when no face was found. */
+  eyewear: EyewearAnalysis | null
+}
+
+export interface EyewearAnalysis {
+  /** Glasses are probably being worn. */
+  detected: boolean
+  /** Share of the eye band the segmenter labels as an accessory (it labels glasses this way). */
+  accessoryShare: number
+  /** Strongest horizontal edge across the nose bridge, with the eyes scaled 100 px apart. */
+  bridgeEdge: number
+  /** Strongest horizontal edge under the eyes (the lower rim of frames), same scale. */
+  rimEdge: number
+  /** Share of the lens area (excluding the irises) that is blown-out white, as from a reflection. */
+  glareShare: number
+  /** Brightness of the lens area relative to the cheeks; well below 1 means tinted lenses. */
+  lensBrightness: number
 }
 
 interface Models {
@@ -33,6 +50,10 @@ const LM = {
   faceRight: 454,
   irisA: 468,
   irisB: 473,
+  browCentre: 168,
+  noseBridge: 6,
+  cheekLeft: 50,
+  cheekRight: 280,
 }
 
 const BASE = import.meta.env.BASE_URL
@@ -192,6 +213,130 @@ function findCrown(
   return { crown: { x: forehead.x + up.x * lastT, y: forehead.y + up.y * lastT }, atEdge }
 }
 
+/**
+ * Looks for glasses, lens reflections and tinted lenses. Works on a crop of the
+ * eye region scaled so the pupils are 100 px apart, combining the segmenter's
+ * accessory class with the straight horizontal edges that frames make.
+ */
+function analyzeEyewear(segmenter: ImageSegmenter, image: LoadedImage, lms: Point[]): EyewearAnalysis {
+  const a = lms[LM.irisA]
+  const b = lms[LM.irisB]
+  const iod = Math.hypot(b.x - a.x, b.y - a.y) || 1
+  const s = 100 / iod
+  const angle = Math.atan2(b.y - a.y, b.x - a.x)
+  const mid = midpoint(a, b)
+  const W = 240
+  const H = 140
+  const crop = createCanvas(W, H)
+  const ctx = ctx2d(crop)
+  // Level the eyes so frame edges are horizontal in the crop.
+  ctx.translate(W / 2, H / 2)
+  ctx.scale(s, s)
+  ctx.rotate(-angle)
+  ctx.translate(-mid.x, -mid.y)
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(image.canvas, 0, 0)
+  const px = ctx.getImageData(0, 0, W, H).data
+  const cos = Math.cos(-angle)
+  const sin = Math.sin(-angle)
+  const toCrop = (p: Point) => {
+    const dx = (p.x - mid.x) * s
+    const dy = (p.y - mid.y) * s
+    return { x: W / 2 + dx * cos - dy * sin, y: H / 2 + dx * sin + dy * cos }
+  }
+  const gray = new Float32Array(W * H)
+  for (let i = 0; i < gray.length; i++) gray[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]
+
+  /** Mean |∂/∂y| along each row of a box; the strongest row. Frames make long straight edges. */
+  const rowPeak = (x0: number, x1: number, y0: number, y1: number) => {
+    let best = 0
+    for (let y = Math.max(1, Math.round(y0)); y < Math.min(H - 1, Math.round(y1)); y++) {
+      let sum = 0
+      let n = 0
+      for (let x = Math.max(0, Math.round(x0)); x < Math.min(W, Math.round(x1)); x++) {
+        sum += Math.abs(gray[(y + 1) * W + x] - gray[(y - 1) * W + x])
+        n++
+      }
+      if (n) best = Math.max(best, sum / n)
+    }
+    return best
+  }
+  const eL = toCrop(a.x < b.x ? a : b)
+  const eR = toCrop(a.x < b.x ? b : a)
+  const brow = toCrop(lms[LM.browCentre])
+  const bridge = toCrop(lms[LM.noseBridge])
+  const bridgeEdge = rowPeak(eL.x + 25, eR.x - 25, brow.y, bridge.y + 8)
+  const rimEdge = Math.min(rowPeak(eL.x - 30, eL.x + 30, eL.y + 18, eL.y + 50), rowPeak(eR.x - 30, eR.x + 30, eR.y + 18, eR.y + 50))
+
+  const result = segmenter.segment(crop)
+  const othersIndex = segmenter.getLabels().indexOf('others')
+  let accessoryShare = 0
+  const mask = othersIndex >= 0 ? result.confidenceMasks?.[othersIndex] : undefined
+  if (mask) {
+    const d = mask.getAsFloat32Array()
+    let hit = 0
+    let total = 0
+    for (let y = Math.round(eL.y - 25); y < eL.y + 40; y++) {
+      for (let x = Math.round(eL.x - 40); x < eR.x + 40; x++) {
+        const mx = Math.floor((x * mask.width) / W)
+        const my = Math.floor((y * mask.height) / H)
+        if (mx < 0 || my < 0 || mx >= mask.width || my >= mask.height) continue
+        total++
+        if (d[my * mask.width + mx] > 0.5) hit++
+      }
+    }
+    accessoryShare = total ? hit / total : 0
+  }
+  result.close()
+
+  // Lens areas: ellipses around each eye, minus the irises (their catchlights are natural).
+  const irisR = (c: number) => ([1, 2, 3, 4].reduce((t, i) => t + Math.hypot(lms[c + i].x - lms[c].x, lms[c + i].y - lms[c].y), 0) / 4) * s
+  const irises = [
+    { c: toCrop(a), r: irisR(LM.irisA) * 1.3 },
+    { c: toCrop(b), r: irisR(LM.irisB) * 1.3 },
+  ]
+  let lensN = 0
+  let lensSum = 0
+  let glare = 0
+  for (const { c, r } of irises) {
+    for (let y = Math.round(c.y - 30); y <= c.y + 30; y++) {
+      for (let x = Math.round(c.x - 42); x <= c.x + 42; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= H) continue
+        if (((x - c.x) / 42) ** 2 + ((y - c.y) / 30) ** 2 > 1) continue
+        const i = y * W + x
+        lensN++
+        lensSum += gray[i]
+        if ((x - c.x) ** 2 + (y - c.y) ** 2 <= r * r) continue
+        const R = px[i * 4], G = px[i * 4 + 1], B = px[i * 4 + 2]
+        if (gray[i] >= 240 && Math.max(R, G, B) - Math.min(R, G, B) <= 30) glare++
+      }
+    }
+  }
+  const patch = (p: Point) => {
+    const c = toCrop(p)
+    let sum = 0
+    let n = 0
+    for (let y = Math.round(c.y - 8); y <= c.y + 8; y++) {
+      for (let x = Math.round(c.x - 8); x <= c.x + 8; x++) {
+        if (x < 0 || y < 0 || x >= W || y >= H) continue
+        sum += gray[y * W + x]
+        n++
+      }
+    }
+    return n ? sum / n : 0
+  }
+  const cheeks = (patch(lms[LM.cheekLeft]) + patch(lms[LM.cheekRight])) / 2
+  const lensBrightness = cheeks > 0 && lensN > 0 ? lensSum / lensN / cheeks : 1
+  return {
+    detected: accessoryShare >= 0.02 || bridgeEdge >= 28 || rimEdge >= 40,
+    accessoryShare,
+    bridgeEdge,
+    rimEdge,
+    glareShare: lensN ? glare / lensN : 0,
+    lensBrightness,
+  }
+}
+
 /** Yaw/pitch in degrees from the face transformation matrix (column-major 4×4). */
 function poseFromMatrix(m: Matrix): { yaw: number; pitch: number } {
   const d = m.data
@@ -259,6 +404,7 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
       pose: null,
       masks: [full],
       crownAtImageEdge: false,
+      eyewear: null,
     }
   }
 
@@ -294,6 +440,7 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
     pose: main.matrix ? poseFromMatrix(main.matrix) : null,
     masks,
     crownAtImageEdge: atEdge,
+    eyewear: analyzeEyewear(segmenter, image, lms),
   }
 }
 

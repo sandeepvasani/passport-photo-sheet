@@ -13,7 +13,8 @@ Everything runs on the user's device. Photos are never uploaded, and there are n
 - **Background:** the original background is kept by default and checked for being plain, light and even. You can optionally replace it. Replacement uses [MODNet](https://github.com/ZHKKKe/MODNet) portrait matting (Apache-2.0) through ONNX Runtime Web, which keeps fine hair strands, and edge colours are corrected so hair doesn't keep a halo of the old background. **Replaced photos get a prominent warning.** The US State Department explicitly rejects digitally edited photos, including replaced backgrounds, and checks for AI edits. Most other countries also require unedited photos.
 - **Walgreens print sizes:** 4×4, 4×5.3, 4×6, 5×7, 6×8, 8×8 and 8×10. Photos are rotated when that fits more on the sheet. Choose edge-to-edge (most photos) or safe margins, with optional cut lines. When there's room, a scale bar is printed so you can confirm the print came out at 100%.
 - **Requirement check:** must pass before download.
-  - Measured: face count, head size, eye height (a guideline), centring, tilt, head turn, eyes open, mouth closed, expression, background, exposure, even lighting, natural skin tones, red eye, colour, focus and print resolution.
+  - Measured: face count, head size, eye height, centring, tilt, head turn, eyes open, mouth closed, expression, glasses, glare on glasses, tinted lenses, background, exposure, even lighting, natural skin tones, red eye, colour, focus, clothing colour (India) and print resolution.
+  - Glasses are detected by combining the segmenter's accessory class around the eyes with the straight edges that frames make. They fail for the US, get a warning for 35×45 mm, and are allowed for India and Canada, where glare and tinted lenses are checked instead.
   - Confirmed by the user, since they can't be measured: glasses, recency, headwear, devices and filters.
 - **Exports:** JPEG with 300 DPI metadata, sized exactly to the print, plus a single digital photo.
 
@@ -37,7 +38,7 @@ npm run e2e -- test-images/portrait.jpg us-2x2 "4 × 6"
 
 `scripts/inspect-matte.mjs` renders the original, result and masks side by side, for checking hair edges against the dev server.
 
-This drives the whole flow in Chrome through Playwright. It saves screenshots and the downloaded files to `e2e-output/`. Set `REPLACE_BG=1` to force background replacement, and `MOBILE=1` to use a phone viewport. The test images in `test-images/` are public-domain US government portraits (White House and NASA). [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs) generates the plain-background and no-face variants. [`scripts/make-selfie-fixtures.mjs`](scripts/make-selfie-fixtures.mjs) generates a close-up selfie and a copy stored sideways with EXIF orientation, as phones do. Set `ENGINE=webkit` to run in Safari's engine; install it once with `npx playwright install webkit`.
+This drives the whole flow in Chrome through Playwright. It saves screenshots and the downloaded files to `e2e-output/`. Set `REPLACE_BG=1` to force background replacement, and `MOBILE=1` to use a phone viewport. The test images in `test-images/` are public-domain US government portraits (White House and NASA). [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs) generates the plain-background and no-face variants. [`scripts/make-glasses-fixtures.mjs`](scripts/make-glasses-fixtures.mjs) adds a lens reflection and tinted lenses to `glasses-thick.jpg`. [`scripts/make-selfie-fixtures.mjs`](scripts/make-selfie-fixtures.mjs) generates a close-up selfie and a copy stored sideways with EXIF orientation, as phones do. Set `ENGINE=webkit` to run in Safari's engine; install it once with `npx playwright install webkit`.
 
 ## Deploying
 

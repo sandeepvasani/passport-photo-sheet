@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { formatLength, type PhotoSpec } from '../config/photoSpecs'
-import { geometryChecks } from '../lib/checks'
+import { geometryChecks, type CheckResult } from '../lib/checks'
 import {
   axes,
   frameToSource,
@@ -448,6 +448,8 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
 
 interface StepProps extends EditorProps {
   hasDetection: boolean
+  /** Problems spotted at upload (e.g. glasses) worth knowing before cropping. */
+  earlyIssues: CheckResult[]
   bg: BackgroundSettings
   autoRefit: boolean
   onAutoRefit: (v: boolean) => void
@@ -476,6 +478,7 @@ export function CropStep(props: StepProps) {
 
       <aside className="panel">
         <h2>Crop &amp; position</h2>
+        {props.earlyIssues.length > 0 && <CheckList results={props.earlyIssues} />}
         {!hasDetection && (
           <p className="alert alert--warn">
             No face was detected, so this photo can’t pass the final check. Try a clear, front-facing photo with even lighting. You can still
