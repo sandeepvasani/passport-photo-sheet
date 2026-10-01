@@ -1,0 +1,86 @@
+# Passport Photo Sheet
+
+Make passport photos in the browser and print them cheaply at Walgreens. You upload a photo, the app crops it to the official size and fixes the background, then tiles copies onto a Walgreens print (a 4×6 by default). It checks the result against the photo rules before allowing download. You cut the individual photos out at home.
+
+Everything runs on the user's device. Photos are never uploaded, and there are no analytics or third-party requests.
+
+## Features
+
+- **Photo types:** US passport and visa (2×2 in), India passport, visa and OCI through VFS Global in the US (2×2 in), 35×45 mm (UK, EU/Schengen, Australia and others), and Canada (50×70 mm). Each type is defined as data in [`src/config/photoSpecs.ts`](src/config/photoSpecs.ts).
+- **Automatic face detection:** MediaPipe Face Landmarker finds the pupils and chin. MediaPipe's multiclass selfie segmenter finds the top of the hair.
+- **Automatic crop:** levels the eyes, centres the face, and picks a head size and eye height inside the official ranges.
+- **Crop editor:** drag to move, pinch or scroll to zoom, rotate, and drag markers to correct the top-of-head, chin and eye positions. Measurements update live against the spec.
+- **Background:** the original background is kept by default and checked for being plain, light and even. You can optionally replace it. Replacement uses [MODNet](https://github.com/ZHKKKe/MODNet) portrait matting (Apache-2.0) through ONNX Runtime Web, which keeps fine hair strands, and edge colours are corrected so hair doesn't keep a halo of the old background. **Replaced photos get a prominent warning.** The US State Department explicitly rejects digitally edited photos, including replaced backgrounds, and checks for AI edits. Most other countries also require unedited photos.
+- **Walgreens print sizes:** 4×4, 4×5.3, 4×6, 5×7, 6×8, 8×8 and 8×10. Photos are rotated when that fits more on the sheet. Choose edge-to-edge (most photos) or safe margins, with optional cut lines. When there's room, a scale bar is printed so you can confirm the print came out at 100%.
+- **Requirement check:** must pass before download.
+  - Measured: face count, head size, eye height (a guideline), centring, tilt, head turn, eyes open, mouth closed, expression, background, exposure, even lighting, natural skin tones, red eye, colour, focus and print resolution.
+  - Confirmed by the user, since they can't be measured: glasses, recency, headwear, devices and filters.
+- **Exports:** JPEG with 300 DPI metadata, sized exactly to the print, plus a single digital photo.
+
+## Development
+
+```bash
+npm install
+npm run dev        # copies the MediaPipe wasm and downloads models into public/, then starts Vite
+npm test           # unit tests (geometry, layout, matting, JPEG DPI)
+npm run build      # type-check and build static files to dist/
+```
+
+`npm run setup` (also run automatically before `dev` and `build`) copies the MediaPipe wasm runtime from `node_modules` into `public/mediapipe/`. It downloads the face landmarker, segmentation and MODNet models (about 33 MB) into `public/models/`. Both folders are generated and git-ignored. Vite bundles the ONNX Runtime wasm itself. If Node can't download through a TLS-inspecting proxy, the script falls back to `curl`.
+
+### End-to-end check
+
+```bash
+npm run build && npx vite preview --port 4173 &
+npm run e2e -- test-images/portrait.jpg us-2x2 "4 × 6"
+```
+
+`scripts/inspect-matte.mjs` renders the original, result and masks side by side, for checking hair edges against the dev server.
+
+This drives the whole flow in Chrome through Playwright. It saves screenshots and the downloaded files to `e2e-output/`. Set `REPLACE_BG=1` to force background replacement, and `MOBILE=1` to use a phone viewport. The test images in `test-images/` are public-domain US government portraits (White House and NASA). [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs) generates the plain-background and no-face variants.
+
+## Deploying
+
+`dist/` is a plain static site with relative paths, so it works from any host or sub-path. Serve it over HTTPS. The first photo downloads about 30 MB of face-detection model and wasm files. Replacing a background downloads about 27 MB more the first time (the MODNet model plus ONNX Runtime). Browsers cache both.
+
+The repo deploys to GitHub Pages automatically: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs the tests, builds (downloading the models), and publishes `dist/` on every push to `main`. To use it in a fork, set **Settings → Pages → Source** to **GitHub Actions**.
+
+## Adding a country
+
+Append a `PhotoSpec` to `PHOTO_SPECS` in [`src/config/photoSpecs.ts`](src/config/photoSpecs.ts) with:
+- photo width and height
+- head-height range
+- either an eye-height range (enforced) or a top-margin guideline (warning only)
+- background colours, glasses and expression rules
+- the items the user must confirm
+
+The auto-fit, editor guides, checks and sheet layout all adapt automatically.
+
+## Project layout
+
+```
+src/
+  config/      photo specs and Walgreens print sizes (data only)
+  lib/
+    geometry.ts  crop model, measurements, auto-fit
+    vision.ts    MediaPipe loading, face landmarks, segmentation, crown detection, head pose
+    matte.ts     MODNet portrait matting (loaded only for background replacement)
+    mask.ts      mask layers shared by segmentation and matting
+    matting.ts   guided filter, background replacement, stray-blob removal
+    render.ts    renders the finished photo at print resolution
+    layout.ts    packs photos onto a print sheet
+    sheet.ts     draws the sheet with cut guides and scale bar
+    checks.ts    compliance checks
+    image.ts     file decoding, JPEG DPI metadata, downloads
+  components/  one component per wizard step
+```
+
+## Caveats
+
+- The automatic checks catch common problems but can't guarantee a photo will be accepted. Always check the current rules with the issuing authority.
+- The US State Department asks for the original, unedited photo and lists a digitally replaced background as unacceptable. For a US passport, the reliable path is a photo taken against a plain white wall or sheet, with the original background kept.
+- The US eye-height range (1⅛–1⅜ in) isn't on the current State Department page, so it's only a positioning guideline here. Head size (1–1⅜ in) is enforced.
+- India's VFS sheet gives the eye height as "1⅛ to 1⅓ in", which is probably a typo for 1⅜. The app enforces 1⅛–1⅓ in, which satisfies both readings. India also requires plain, coloured (non-white) clothing; the app warns when clothing looks white but can't detect patterns.
+- MODNet can misjudge dark areas inside clothing, such as a collar opening, as background. Check the result before printing.
+- Canadian paper applications need a photographer's stamp on the back of one photo.
+- Edge-to-edge layouts depend on the printer not trimming the paper edges. Use "With margins" if that is a concern.
