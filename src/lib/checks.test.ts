@@ -54,34 +54,46 @@ describe('faceCountCheck', () => {
   })
 })
 
-// Median skin brightness (left, centre, right as seen in the photo) measured on the test photos.
-type Row = [number | null, number | null, number | null]
+// Skin [brightness, grain] per region (left, centre, right as seen in the photo), measured
+// on the test photos and on public-domain official portraits from Wikimedia Commons.
+type Cell = [number, number] | null
+type Row = [Cell, Cell, Cell]
 const light = (forehead: Row, eyes: Row, cheeks: Row, jaw: Row): LightingAnalysis => {
-  const side = ([left, centre, right]: Row) => ({ left, centre, right })
+  const region = (c: Cell) => (c ? { brightness: c[0], texture: c[1] } : null)
+  const side = ([left, centre, right]: Row) => ({ left: region(left), centre: region(centre), right: region(right) })
   return { forehead: side(forehead), eyes: side(eyes), cheeks: side(cheeks), jaw: side(jaw) }
 }
 const MEASURED = {
-  portrait: light([194, 184, 174], [149, 156, 117], [168, 171, 150], [168, 153, 138]),
-  nasa2: light([201, 209, 167], [170, 183, 129], [189, 173, 158], [184, 185, 142]),
-  nasa3: light([190, 203, 166], [170, 167, 117], [169, 161, 138], [177, 172, 138]),
-  twoPeople: light([197, 210, 162], [162, 185, 125], [189, 175, 155], [182, 183, 139]),
-  nasa1: light([190, 187, 138], [159, 167, 110], [166, 164, 116], [162, 162, 111]),
-  glassesThin: light([195, 189, 146], [139, 144, 112], [167, 143, 116], [171, 162, 115]),
-  shadowSide: light([193, 162, 102], [148, 136, 70], [168, 149, 88], [169, 129, 80]),
-  shadowForeheadSide: light([116, 178, 174], [149, 156, 117], [167, 171, 149], [168, 153, 138]),
-  shadowBrim: light([136, 111, 119], [147, 156, 119], [168, 171, 150], [169, 152, 138]),
-  shadowOverhead: light([191, 184, 172], [91, 138, 70], [160, 164, 141], [158, 89, 128]),
+  portrait: light([[194, 0.016], [184, 0.014], [174, 0.019]], [[149, 0.073], [156, 0.028], [117, 0.095]], [[168, 0.038], [171, 0.018], [150, 0.045]], [[168, 0.032], [153, 0.026], [138, 0.039]]),
+  nasa1: light([[190, 0.009], [187, 0.009], [138, 0.011]], [[158, 0.027], [167, 0.012], [109, 0.035]], [[166, 0.013], [163, 0.014], [116, 0.015]], [[162, 0.012], [161, 0.013], [111, 0.017]]),
+  nasa2: light([[200, 0.005], [209, 0.006], [167, 0.006]], [[170, 0.015], [184, 0.009], [129, 0.017]], [[189, 0.006], [173, 0.009], [158, 0.008]], [[184, 0.005], [185, 0.006], [143, 0.009]]),
+  nasa3: light([[190, 0.013], [203, 0.009], [167, 0.017]], [[170, 0.019], [167, 0.017], [117, 0.023]], [[169, 0.016], [161, 0.018], [138, 0.018]], [[176, 0.014], [173, 0.015], [139, 0.020]]),
+  selfie: light([[198, 0.005], [210, 0.005], [167, 0.006]], [[170, 0.018], [184, 0.009], [128, 0.018]], [[189, 0.005], [171, 0.010], [158, 0.007]], [[185, 0.005], [184, 0.006], [142, 0.009]]),
+  moustache: light([[191, 0.006], [202, 0.006], [173, 0.009]], [[169, 0.018], [178, 0.013], [130, 0.019]], [[186, 0.011], [149, 0.016], [162, 0.012]], [[183, 0.007], [178, 0.006], [140, 0.012]]),
+  greyBeardSideLit: light([[195, 0.005], [189, 0.006], [146, 0.007]], [[139, 0.040], [145, 0.035], [112, 0.027]], [[167, 0.024], [143, 0.032], [116, 0.027]], [[171, 0.038], [162, 0.059], [115, 0.052]]),
+  studioSideLit: light([[223, 0.011], [211, 0.017], [148, 0.026]], [[177, 0.068], [186, 0.031], [102, 0.059]], [[200, 0.029], [196, 0.036], [111, 0.033]], [[194, 0.019], [159, 0.040], [106, 0.033]]),
+  shadowSide: light([[193, 0.017], [162, 0.014], [102, 0.019]], [[148, 0.074], [136, 0.030], [70, 0.093]], [[168, 0.039], [149, 0.019], [88, 0.044]], [[169, 0.034], [129, 0.027], [80, 0.039]]),
+  shadowOverhead: light([[191, 0.017], [184, 0.014], [172, 0.020]], [[91, 0.074], [138, 0.028], [70, 0.099]], [[160, 0.039], [164, 0.019], [141, 0.046]], [[158, 0.031], [89, 0.026], [128, 0.041]]),
+  shadowBrim: light([[136, 0.017], [111, 0.014], [119, 0.020]], [[147, 0.074], [156, 0.030], [119, 0.094]], [[168, 0.039], [171, 0.019], [150, 0.047]], [[169, 0.032], [152, 0.027], [138, 0.041]]),
+  shadowForeheadSide: light([[116, 0.016], [178, 0.014], [174, 0.020]], [[149, 0.073], [156, 0.030], [117, 0.098]], [[167, 0.038], [171, 0.019], [149, 0.046]], [[168, 0.032], [153, 0.027], [138, 0.040]]),
+  darkBeard: light([[205, 0.011], [209, 0.010], [177, 0.015]], [[164, 0.043], [174, 0.020], [121, 0.041]], [[186, 0.034], [173, 0.044], [149, 0.040]], [[141, 0.105], [127, 0.109], [62, 0.133]]),
+  fullBeard: light([[209, 0.016], [213, 0.012], [180, 0.024]], [[193, 0.029], [205, 0.020], [134, 0.045]], [[197, 0.026], [171, 0.056], [153, 0.044]], [[110, 0.128], [92, 0.149], [63, 0.149]]),
+  heavyStubble: light([[165, 0.020], [174, 0.021], [186, 0.025]], [[124, 0.064], [151, 0.051], null], [[102, 0.089], [132, 0.075], [144, 0.089]], [[75, 0.173], [93, 0.135], [90, 0.210]]),
+  goateeSideLit: light([[206, 0.012], [200, 0.015], [148, 0.022]], [[181, 0.050], [187, 0.021], [83, 0.068]], [[193, 0.021], [184, 0.022], [132, 0.038]], [[165, 0.122], [115, 0.187], [88, 0.131]]),
+  shortBeardSideLit: light([[128, 0.064], [150, 0.041], [79, 0.063]], [[81, 0.095], [83, 0.083], [48, 0.115]], [[104, 0.079], [121, 0.061], [66, 0.081]], [[83, 0.092], [82, 0.101], [51, 0.096]]),
 }
 
 describe('lightingCheck', () => {
   it('passes evenly lit faces', () => {
-    for (const l of [MEASURED.portrait, MEASURED.nasa2, MEASURED.nasa3, MEASURED.twoPeople]) {
-      expect(lightingCheck(l)?.status).toBe('pass')
+    for (const l of [MEASURED.portrait, MEASURED.nasa2, MEASURED.nasa3, MEASURED.selfie, MEASURED.moustache]) {
+      const r = lightingCheck(l)!
+      expect(r.status).toBe('pass')
+      expect(r.detail).not.toContain('beard')
     }
   })
 
   it('flags light from one side and names the darker side', () => {
-    for (const l of [MEASURED.nasa1, MEASURED.glassesThin, MEASURED.shadowSide]) {
+    for (const l of [MEASURED.nasa1, MEASURED.studioSideLit, MEASURED.shadowSide, MEASURED.greyBeardSideLit]) {
       const r = lightingCheck(l)!
       expect(r.status).toBe('warn')
       expect(r.detail).toContain('right side of your face')
@@ -105,11 +117,34 @@ describe('lightingCheck', () => {
     const r = lightingCheck(MEASURED.shadowOverhead)!
     expect(r.status).toBe('warn')
     expect(r.detail).toContain('around your eyes and below your mouth')
-    expect(r.detail).toContain('beard')
+  })
+
+  it('doesn’t mistake a beard or heavy stubble for shadow', () => {
+    for (const l of [MEASURED.darkBeard, MEASURED.fullBeard, MEASURED.heavyStubble]) {
+      const r = lightingCheck(l)!
+      expect(r.status).toBe('pass')
+      expect(r.detail).toContain('beard area wasn’t checked')
+    }
+  })
+
+  it('still flags side light on a bearded face, from the skin above the beard', () => {
+    for (const l of [MEASURED.goateeSideLit, MEASURED.shortBeardSideLit]) {
+      const r = lightingCheck(l)!
+      expect(r.status).toBe('warn')
+      expect(r.detail).toContain('right side of your face')
+      expect(r.detail).not.toContain('below your mouth')
+    }
+  })
+
+  it('only reports a dark chin together with shaded eye sockets', () => {
+    // Even stubble too fine to look grainy: the chin alone is darker.
+    const p = MEASURED.portrait
+    const stubble: LightingAnalysis = { ...p, jaw: { ...p.jaw, centre: { brightness: 90, texture: 0.026 } } }
+    expect(lightingCheck(stubble)?.status).toBe('pass')
   })
 
   it('skips regions it could not measure', () => {
-    const covered = light([null, null, null], [149, 156, 117], [168, 171, 150], [168, 153, 138])
+    const covered = light([null, null, null], [[149, 0.07], [156, 0.03], [117, 0.09]], [[168, 0.04], [171, 0.02], [150, 0.045]], [[168, 0.03], [153, 0.026], [138, 0.04]])
     expect(lightingCheck(covered)?.status).toBe('pass')
     expect(lightingCheck(light([null, null, null], [null, null, null], [null, null, null], [null, null, null]))).toBeNull()
     expect(lightingCheck(null)).toBeNull()

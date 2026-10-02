@@ -2,7 +2,7 @@ import { formatLength, formatRange, type PhotoSpec } from '../config/photoSpecs'
 import { eyeLineAngle, measure, sourceToFrame, uncoveredFraction, type Crop, type Markers, type Point } from './geometry'
 import { ctx2d, type LoadedImage } from './image'
 import type { BackgroundSettings, RenderedPhoto } from './render'
-import type { DetectedFace, EyewearAnalysis, FaceAnalysis, LightingAnalysis } from './vision'
+import type { DetectedFace, EyewearAnalysis, FaceAnalysis, LightBand, LightingAnalysis, LightRegion, LightSide } from './vision'
 
 export type CheckStatus = 'pass' | 'warn' | 'fail'
 
@@ -339,6 +339,12 @@ const BAND_SIDE_LIMIT = 0.3
 const FOREHEAD_LIMIT = 0.85
 /** Brightness around the eyes, and below the mouth, relative to the cheeks: lower means light from above. */
 const OVERHEAD_LIMIT = 0.7
+/**
+ * Grain, relative to the forehead's, above which a region is taken to be beard or
+ * stubble rather than skin; and the least grain that counts (skin pores, smile lines).
+ */
+const HAIR_TEXTURE_RATIO = 3
+const HAIR_TEXTURE_MIN = 0.03
 
 const SIDE_BANDS = [
   ['forehead', 'forehead'],
@@ -346,16 +352,32 @@ const SIDE_BANDS = [
   ['jaw', 'jaw'],
 ] as const
 
-const known = (v: (number | null)[]) => v.filter((x): x is number => x !== null)
+const known = <T,>(v: (T | null)[]) => v.filter((x): x is T => x !== null)
+const median = (v: number[]) => [...v].sort((p, q) => p - q)[v.length >> 1]
 const listing = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`)
 
 /**
  * Looks for shadows on the face from skin brightness measured at three levels
  * (forehead, cheeks, jaw) on each side, around the eyes and below the mouth. Left
- * and right are as seen in the photo. Null when too little skin could be measured.
+ * and right are as seen in the photo. Beards and stubble darken skin much like a
+ * shadow does, but they're grainy where a shadow is smooth, so grainy regions are
+ * left out. Null when too little skin could be measured.
  */
 export function lightingCheck(lighting: LightingAnalysis | null): CheckResult | null {
   if (!lighting) return null
+
+  // The forehead is the reference for bare skin's grain (it's almost never hairy).
+  const lower = known([...Object.values(lighting.cheeks), ...Object.values(lighting.jaw)]).map((r) => r.texture)
+  const forehead = known(Object.values(lighting.forehead)).map((r) => r.texture)
+  const baseline = forehead.length ? median(forehead) : lower.length ? Math.min(...lower) : 0
+  const hairy = (r: LightRegion) => r.texture > HAIR_TEXTURE_RATIO * baseline && r.texture > HAIR_TEXTURE_MIN
+  /** Skin brightness of a region, or null if it couldn't be measured or looks like facial hair. */
+  const skin = (band: LightBand, side: LightSide) => {
+    const r = lighting[band][side]
+    return r && (band === 'eyes' || !hairy(r)) ? r.brightness : null
+  }
+  const beard = lighting.jaw.centre !== null && hairy(lighting.jaw.centre)
+
   const where: string[] = []
   const advice = new Set<string>()
   let sided = false
@@ -365,7 +387,8 @@ export function lightingCheck(lighting: LightingAnalysis | null): CheckResult | 
   let left = 0
   let right = 0
   for (const [band] of SIDE_BANDS) {
-    const { left: l, right: r } = lighting[band]
+    const l = skin(band, 'left')
+    const r = skin(band, 'right')
     if (l !== null && r !== null) {
       left += l
       right += r
@@ -382,7 +405,8 @@ export function lightingCheck(lighting: LightingAnalysis | null): CheckResult | 
   // Otherwise one level on its own, like hair or a hat shading half the forehead.
   if (!sided) {
     for (const [band, noun] of SIDE_BANDS) {
-      const { left: l, right: r } = lighting[band]
+      const l = skin(band, 'left')
+      const r = skin(band, 'right')
       if (l === null || r === null) continue
       if (Math.abs(l - r) / Math.max(l, r, 1) > BAND_SIDE_LIMIT) {
         where.push(`on the ${l < r ? 'left' : 'right'} side of your ${noun} (as you look at the photo)`)
@@ -392,40 +416,40 @@ export function lightingCheck(lighting: LightingAnalysis | null): CheckResult | 
     }
   }
 
-  const cheeks = known(Object.values(lighting.cheeks))
-  const forehead = known(Object.values(lighting.forehead))
-  if (cheeks.length && forehead.length) {
+  const sides = ['left', 'centre', 'right'] as const
+  const cheeks = known(sides.map((side) => skin('cheeks', side)))
+  const foreheadSkin = known(sides.map((side) => skin('forehead', side)))
+  if (cheeks.length && foreheadSkin.length) {
     measured = true
-    if (mean(forehead) / mean(cheeks) < FOREHEAD_LIMIT) {
+    if (mean(foreheadSkin) / mean(cheeks) < FOREHEAD_LIMIT) {
       where.push('on your forehead')
       advice.add('A hat brim, hair or a light directly overhead often causes this. Take off any hat and light your face from the front.')
     }
   }
 
-  let chinShadow = false
-  const eyes = known([lighting.eyes.left, lighting.eyes.right])
-  const cheekSides = known([lighting.cheeks.left, lighting.cheeks.right])
+  // Light from above always shades the eye sockets. A dark chin without that is
+  // much more likely a beard or stubble, so it's only mentioned alongside them.
+  const eyes = known([skin('eyes', 'left'), skin('eyes', 'right')])
+  const cheekSides = known([skin('cheeks', 'left'), skin('cheeks', 'right')])
   if (eyes.length === 2 && cheekSides.length === 2 && mean(eyes) / mean(cheekSides) < OVERHEAD_LIMIT) {
     where.push('around your eyes')
+    const chin = skin('jaw', 'centre')
+    const cheek = skin('cheeks', 'centre')
+    if (chin !== null && cheek !== null && chin / cheek < OVERHEAD_LIMIT) where.push('below your mouth')
     advice.add('The light seems to come from above. Use light in front of you at face height, such as facing a window.')
-  }
-  const { centre: jaw } = lighting.jaw
-  const { centre: cheek } = lighting.cheeks
-  if (jaw !== null && cheek !== null && jaw / cheek < OVERHEAD_LIMIT) {
-    where.push('below your mouth')
-    advice.add('The light seems to come from above. Use light in front of you at face height, such as facing a window.')
-    chinShadow = true
   }
 
   if (!measured) return null
+  const beardNote = 'Your beard area wasn’t checked, since facial hair can look like shadow.'
   if (!where.length) {
-    return { id: 'shadows', label: 'Even lighting on face', status: 'pass', detail: 'No strong shadows on the forehead, around the eyes, on the cheeks or on the chin' }
+    return {
+      id: 'shadows',
+      label: 'Even lighting on face',
+      status: 'pass',
+      detail: beard ? `No strong shadows found. ${beardNote}` : 'No strong shadows on the forehead, around the eyes, on the cheeks or on the chin',
+    }
   }
-  const notes = [
-    `Shadow found ${listing(where)}.`,
-    ...advice,
-    ...(chinShadow ? ['A beard can look like this too. If that’s the cause, ignore this.'] : []),
-  ]
+  const notes = [`Shadow found ${listing(where)}.`, ...advice, ...(beard ? [beardNote] : [])]
   return { id: 'shadows', label: 'Even lighting on face', status: 'warn', detail: notes.join(' ') }
 }
 

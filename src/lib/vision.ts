@@ -30,11 +30,17 @@ export interface FaceAnalysis {
 
 export type LightBand = 'forehead' | 'eyes' | 'cheeks' | 'jaw'
 export type LightSide = 'left' | 'centre' | 'right'
+export interface LightRegion {
+  /** Median skin brightness, 0–255. */
+  brightness: number
+  /** Average fine grain relative to brightness: hair (beard, stubble) is grainy, shadows are smooth. */
+  texture: number
+}
 /**
- * Median skin brightness (0–255) for each face region, or null where too little
- * bare skin is visible (hair, beard, glasses). Left and right are as seen in the photo.
+ * Skin measurements for each face region, or null where too little bare skin is
+ * visible (head hair, glasses). Left and right are as seen in the photo.
  */
-export type LightingAnalysis = Record<LightBand, Record<LightSide, number | null>>
+export type LightingAnalysis = Record<LightBand, Record<LightSide, LightRegion | null>>
 
 export interface EyewearAnalysis {
   /** Glasses are probably being worn. */
@@ -381,10 +387,10 @@ const LIPS = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 
 const BROWS = [...BROW_LEFT, ...BROW_RIGHT]
 
 /**
- * Measures how evenly the face is lit. Works on a levelled crop with the pupils
- * 100 px apart, splits the face into forehead / eye area / cheeks / jaw bands,
- * each left / centre / right, and takes the median brightness of the bare skin
- * in each (eyes, brows, lips, nostrils, hair, beard and glasses excluded).
+ * Measures how evenly the face is lit. Works on a levelled crop of the face, splits
+ * it into forehead / eye area / cheeks / jaw bands, each left / centre / right, and
+ * measures the skin's median brightness and grain in each (eyes, brows, lips,
+ * nostrils, head hair and glasses excluded).
  */
 function measureLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | null): LightingAnalysis {
   try {
@@ -398,12 +404,16 @@ function analyzeLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | nul
   const a = lms[LM.irisA]
   const b = lms[LM.irisB]
   const iod = Math.hypot(b.x - a.x, b.y - a.y) || 1
-  const s = 100 / iod
+  // Work near the photo's own resolution (capped) so stubble stays grainy rather than
+  // blurring into what looks like a shadow. Sizes below are in units of 1/100 of the
+  // distance between the pupils.
+  const u = Math.min(2.4, Math.max(1, iod / 100))
+  const s = (100 * u) / iod
   const angle = Math.atan2(b.y - a.y, b.x - a.x)
   const mid = midpoint(a, b)
-  const W = 360
-  const H = 420
-  const eyeY = 170
+  const W = Math.round(360 * u)
+  const H = Math.round(420 * u)
+  const eyeY = 170 * u
   const align = (ctx: CanvasRenderingContext2D) => {
     ctx.translate(W / 2, eyeY)
     ctx.scale(s, s)
@@ -455,12 +465,12 @@ function analyzeLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | nul
   for (const [i, r] of [[2, 14], [98, 10], [327, 10]] as const) {
     const c = toCrop(lms[i])
     vctx.beginPath()
-    vctx.arc(c.x, c.y, r, 0, Math.PI * 2)
+    vctx.arc(c.x, c.y, r * u, 0, Math.PI * 2)
     vctx.fill()
   }
   const vd = vctx.getImageData(0, 0, W, H).data
 
-  // Face-skin class from the segmenter (drops hair, beard and glasses frames).
+  // Face-skin class from the segmenter (drops head hair and glasses frames, but not beards).
   let sd: Uint8ClampedArray | null = null
   if (skin) {
     const sk = createCanvas(W, H)
@@ -475,9 +485,39 @@ function analyzeLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | nul
   releaseCanvas(photo)
   releaseCanvas(valid)
 
+  const lum = new Float32Array(W * H)
+  const ok = new Uint8Array(W * H)
+  for (let i = 0; i < W * H; i++) {
+    lum[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]
+    ok[i] = vd[i * 4] >= 128 && (!sd || sd[i * 4] >= 128) ? 1 : 0
+  }
+  // Grain: how far each pixel strays from its 5×5 neighbourhood, relative to it, counted
+  // only where the whole neighbourhood is skin so feature edges don't register.
+  const R = 2
+  const sumL = new Float64Array((W + 1) * (H + 1))
+  const sumOk = new Int32Array((W + 1) * (H + 1))
+  for (let y = 0; y < H; y++) {
+    let rowL = 0
+    let rowOk = 0
+    for (let x = 0; x < W; x++) {
+      rowL += lum[y * W + x]
+      rowOk += ok[y * W + x]
+      sumL[(y + 1) * (W + 1) + x + 1] = sumL[y * (W + 1) + x + 1] + rowL
+      sumOk[(y + 1) * (W + 1) + x + 1] = sumOk[y * (W + 1) + x + 1] + rowOk
+    }
+  }
+  const box = (t: Float64Array | Int32Array, x: number, y: number) => {
+    const x0 = x - R
+    const y0 = y - R
+    const x1 = x + R + 1
+    const y1 = y + R + 1
+    return t[y1 * (W + 1) + x1] - t[y0 * (W + 1) + x1] - t[y1 * (W + 1) + x0] + t[y0 * (W + 1) + x0]
+  }
+  const area = (2 * R + 1) ** 2
+
   const top = toCrop(lms[LM.forehead]).y
   const browTop = Math.min(...BROWS.map((i) => toCrop(lms[i]).y))
-  const underEye = Math.max(toCrop(lms[145]).y, toCrop(lms[374]).y) + 12
+  const underEye = Math.max(toCrop(lms[145]).y, toCrop(lms[374]).y) + 12 * u
   const mouth = (toCrop(lms[61]).y + toCrop(lms[291]).y) / 2
   const chin = toCrop(lms[LM.chin]).y
   const midX = toCrop(lms[LM.browCentre]).x
@@ -487,29 +527,34 @@ function analyzeLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | nul
     ['cheeks', underEye, mouth],
     ['jaw', mouth, chin],
   ]
-  const buckets: Record<string, number[]> = {}
+  const buckets: Record<string, { lum: number[]; grain: number; grainN: number }> = {}
   for (let y = 0; y < H; y++) {
     const band = bands.find(([, y0, y1]) => y >= y0 && y < y1)
     if (!band) continue
     for (let x = 0; x < W; x++) {
-      const i = (y * W + x) * 4
-      if (vd[i] < 128 || (sd && sd[i] < 128)) continue
-      const side: LightSide = x < midX - 30 ? 'left' : x > midX + 30 ? 'right' : 'centre'
-      const key = `${band[0]}:${side}`
-      ;(buckets[key] ??= []).push(0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2])
+      const i = y * W + x
+      if (!ok[i]) continue
+      const side: LightSide = x < midX - 30 * u ? 'left' : x > midX + 30 * u ? 'right' : 'centre'
+      const bucket = (buckets[`${band[0]}:${side}`] ??= { lum: [], grain: 0, grainN: 0 })
+      bucket.lum.push(lum[i])
+      if (x >= R && y >= R && x < W - R && y < H - R && box(sumOk, x, y) === area) {
+        const m = box(sumL, x, y) / area
+        bucket.grain += Math.abs(lum[i] - m) / Math.max(m, 8)
+        bucket.grainN++
+      }
     }
   }
-  const median = (v: number[] | undefined) => {
-    if (!v || v.length < 120) return null
-    v.sort((p, q) => p - q)
-    return v[v.length >> 1]
+  const region = (b: (typeof buckets)[string] | undefined): LightRegion | null => {
+    if (!b || b.lum.length < 120 * u * u) return null
+    b.lum.sort((p, q) => p - q)
+    return { brightness: b.lum[b.lum.length >> 1], texture: b.grainN ? b.grain / b.grainN : 0 }
   }
   const out = {} as LightingAnalysis
   for (const [band] of bands) {
     out[band] = {
-      left: median(buckets[`${band}:left`]),
-      centre: median(buckets[`${band}:centre`]),
-      right: median(buckets[`${band}:right`]),
+      left: region(buckets[`${band}:left`]),
+      centre: region(buckets[`${band}:centre`]),
+      right: region(buckets[`${band}:right`]),
     }
   }
   return out
