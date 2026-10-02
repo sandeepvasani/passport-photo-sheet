@@ -42,6 +42,8 @@ export function renderSheet(
   }
 
   const line = Math.max(1, Math.round(dpi / 300))
+  const free = layout.freeBottom
+  const showScaleBar = free.h >= 6
   if (opts.cutGuides) {
     ctx.strokeStyle = '#a8a8a8'
     ctx.lineWidth = line
@@ -60,8 +62,11 @@ export function renderSheet(
       for (const x of xs) {
         ctx.moveTo(x, 0)
         ctx.lineTo(x, top - gap)
-        ctx.moveTo(x, bottom + gap)
-        ctx.lineTo(x, Math.min(H, bottom + gap + 3 * k))
+        // The scale bar's label sits below the photos; the top marks already show these cuts.
+        if (!showScaleBar) {
+          ctx.moveTo(x, bottom + gap)
+          ctx.lineTo(x, Math.min(H, bottom + gap + 3 * k))
+        }
       }
       for (const y of ys) {
         ctx.moveTo(0, y)
@@ -74,8 +79,7 @@ export function renderSheet(
   }
 
   // Scale bar so the user can confirm the lab printed at 100%.
-  const free = layout.freeBottom
-  if (free.h >= 7) {
+  if (showScaleBar) {
     const barMm = spec.displayUnit === 'in' ? 25.4 : 25
     const barLabel = spec.displayUnit === 'in' ? '1 inch' : '25 mm'
     const cy = (free.y + free.h / 2) * k

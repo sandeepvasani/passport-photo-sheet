@@ -1,5 +1,5 @@
 import type { PhotoSpec } from '../config/photoSpecs'
-import { PRINT_DPI, WALGREENS_PRINTS_URL, type PrintSize } from '../config/printSizes'
+import { PRINT_DPI, type PrintSize } from '../config/printSizes'
 import type { CheckResult } from '../lib/checks'
 import type { RenderedPhoto } from '../lib/render'
 import { CanvasPreview, CheckList } from './common'
@@ -50,28 +50,24 @@ export function CheckStep(props: Props) {
           <figure>
             <CanvasPreview canvas={props.sheet} label="Print sheet" className="sheet-thumb" />
             <figcaption>
-              {print.label} in sheet · {props.photoCount} photos
+              {print.label} sheet · {props.photoCount} photos
             </figcaption>
           </figure>
         </div>
 
-        <div className="walgreens">
-          <h3>Printing at Walgreens</h3>
+        <div className="print-help">
+          <h3>Getting it printed</h3>
           <ol>
             <li>Download the print sheet below.</li>
             <li>
-              Go to{' '}
-              <a href={WALGREENS_PRINTS_URL} target="_blank" rel="noreferrer">
-                Walgreens Photo Prints
-              </a>{' '}
-              and choose <strong>{print.label}</strong> prints.
+              Order a <strong>{print.label}</strong> photo print from any photo lab, pharmacy, supermarket photo counter or online print
+              service. Matte or glossy are both fine.
             </li>
             <li>
-              Upload the sheet. It’s {Math.round(print.widthIn * PRINT_DPI)} × {Math.round(print.heightIn * PRINT_DPI)} pixels, which is exactly{' '}
-              {print.label} in at Walgreens’ {PRINT_DPI} DPI, so every photo prints at exactly {spec.sizeLabel}. If the order screen offers
-              cropping, keep the whole image selected, and turn off any auto-enhance.
+              The file is {Math.round(print.widthIn * PRINT_DPI)} × {Math.round(print.heightIn * PRINT_DPI)} pixels, exactly {print.label} at{' '}
+              {PRINT_DPI} DPI (the standard print resolution), so every photo prints at exactly {spec.sizeLabel}. Choose the same print size,
+              keep the whole image selected if the order screen offers cropping, and turn off any auto-enhance.
             </li>
-            <li>Pick matte or glossy, then choose same-day pickup or delivery.</li>
             <li>At home, cut along the grey lines and measure one photo with a ruler: it should be exactly {spec.sizeLabel}.</li>
           </ol>
         </div>

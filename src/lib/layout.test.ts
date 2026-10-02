@@ -23,6 +23,15 @@ describe('photosPerSheet', () => {
     expect(photosPerSheet(US_PASSPORT, size('5x7'), 'safe')).toBe(6)
   })
 
+  it('fits eight 35×45 photos on a 10 × 15 cm print', () => {
+    expect(photosPerSheet(INTL_35X45, size('10x15cm'), 'max')).toBe(8)
+    expect(photosPerSheet(INTL_35X45, size('10x15cm'), 'safe')).toBe(8)
+  })
+
+  it('fits six 2×2 photos on a 13 × 18 cm print', () => {
+    expect(photosPerSheet(US_PASSPORT, size('13x18cm'), 'safe')).toBe(6)
+  })
+
   it('fits twenty 2×2 photos on an 8×10', () => {
     expect(photosPerSheet(US_PASSPORT, size('8x10'), 'max')).toBe(20)
   })

@@ -51,6 +51,8 @@ export interface PhotoSpec {
   expression: 'smile-mouth-closed' | 'neutral'
   /** Shown when the background has been replaced: the issuer's rule on edited photos. */
   editingPolicy: string
+  /** Print size most people applying with this document can order locally (see printSizes.ts). */
+  defaultPrintSizeId: string
   attestations: Attestation[]
   notes: string[]
   sourceUrl: string
@@ -91,6 +93,7 @@ export const US_PASSPORT: PhotoSpec = {
   expression: 'smile-mouth-closed',
   editingPolicy:
     'The State Department asks for the original, unedited photo. It says not to change photos with software, apps, filters or AI, lists a digitally replaced background as unacceptable, and checks photos for AI edits.',
+  defaultPrintSizeId: '4x6',
   attestations: [
     RECENT,
     { id: 'glasses', label: 'I’m not wearing glasses, and none are resting on my head' },
@@ -130,6 +133,7 @@ export const INDIA_2X2: PhotoSpec = {
   requiresColouredClothing: true,
   expression: 'smile-mouth-closed',
   editingPolicy: 'India’s photo guidelines say not to retouch, enhance or soften the photo.',
+  defaultPrintSizeId: '4x6',
   attestations: [
     RECENT,
     {
@@ -171,6 +175,7 @@ export const INTL_35X45: PhotoSpec = {
   glasses: 'discouraged',
   expression: 'neutral',
   editingPolicy: 'Most passport offices, including the UK’s and the Schengen countries’, require photos that haven’t been digitally altered.',
+  defaultPrintSizeId: '10x15cm',
   attestations: [
     RECENT,
     {
@@ -203,6 +208,7 @@ export const CANADA_50X70: PhotoSpec = {
   glasses: 'allowed',
   expression: 'neutral',
   editingPolicy: 'Canada requires photos that haven’t been digitally altered.',
+  defaultPrintSizeId: '4x6',
   attestations: [
     RECENT,
     {

@@ -1,6 +1,6 @@
 # Passport Photo Sheet
 
-Make passport photos in the browser and print them cheaply at Walgreens. You upload a photo, the app crops it to the official size and fixes the background, then tiles copies onto a Walgreens print (a 4×6 by default). It checks the result against the photo rules before allowing download. You cut the individual photos out at home.
+Make passport photos in the browser and print them cheaply at any photo lab. You upload a photo, the app crops it to the official size and can fix the background, then tiles copies onto a standard photo print (4 × 6 in or 10 × 15 cm by default). It checks the result against the photo rules before allowing download. You order the print from a pharmacy, supermarket photo counter or online print service, and cut the individual photos out at home.
 
 Everything runs on the user's device. Photos are never uploaded, and there are no analytics or third-party requests.
 
@@ -11,7 +11,7 @@ Everything runs on the user's device. Photos are never uploaded, and there are n
 - **Automatic crop:** levels the eyes, centres the face, and picks a head size and eye height inside the official ranges.
 - **Crop editor:** drag to move, pinch or scroll to zoom, rotate, and drag markers to correct the top-of-head, chin and eye positions. Measurements update live against the spec.
 - **Background:** the original background is kept by default and checked for being plain, light and even. You can optionally replace it. Replacement uses [MODNet](https://github.com/ZHKKKe/MODNet) portrait matting (Apache-2.0) through ONNX Runtime Web, which keeps fine hair strands, and edge colours are corrected so hair doesn't keep a halo of the old background. **Replaced photos get a prominent warning.** The US State Department explicitly rejects digitally edited photos, including replaced backgrounds, and checks for AI edits. Most other countries also require unedited photos.
-- **Walgreens print sizes:** 4×4, 4×5.3, 4×6, 5×7, 6×8, 8×8 and 8×10. Photos are rotated when that fits more on the sheet. Choose edge-to-edge (most photos) or safe margins, with optional cut lines. When there's room, a scale bar is printed so you can confirm the print came out at 100%.
+- **Print sizes:** inch sizes (4×4, 4×5.3, 4×6, 5×7, 6×8, 8×8, 8×10) for North America and metric sizes (10×15, 13×18, 15×20, 20×30 cm) for most other countries. Each photo type starts on the print size its applicants can usually order locally. Photos are rotated when that fits more on the sheet. Choose edge-to-edge (most photos) or safe margins, with optional cut lines. When there's room, a scale bar is printed so you can confirm the print came out at 100%.
 - **Requirement check:** must pass before download.
   - Measured: face count, head size, eye height, centring, tilt, head turn, eyes open, mouth closed, expression, glasses, glare on glasses, tinted lenses, background, exposure, even lighting, natural skin tones, red eye, colour, focus, clothing colour (India) and print resolution.
   - Glasses are detected by combining the segmenter's accessory class around the eyes with the straight edges that frames make. They fail for the US, get a warning for 35×45 mm, and are allowed for India and Canada, where glare and tinted lenses are checked instead.
@@ -61,7 +61,7 @@ The auto-fit, editor guides, checks and sheet layout all adapt automatically.
 
 ```
 src/
-  config/      photo specs and Walgreens print sizes (data only)
+  config/      photo specs and print sizes (data only)
   lib/
     geometry.ts  crop model, measurements, auto-fit
     vision.ts    MediaPipe loading, face landmarks, segmentation, crown detection, head pose

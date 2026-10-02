@@ -63,7 +63,9 @@ export default function App() {
   const [crop, setCrop] = useState<Crop | null>(null)
   const [autoRefit, setAutoRefit] = useState(true)
   const [bg, setBg] = useState<BackgroundSettings>(() => defaultBackground(spec))
-  const [printId, setPrintId] = useState(DEFAULT_PRINT_SIZE_ID)
+  const [printId, setPrintId] = useState(spec.defaultPrintSizeId ?? DEFAULT_PRINT_SIZE_ID)
+  /** Once the user picks a print size, switching photo type no longer changes it. */
+  const [printChosen, setPrintChosen] = useState(false)
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('auto')
   const [cutGuides, setCutGuides] = useState(true)
   const [attest, setAttest] = useState<Record<string, boolean>>({})
@@ -168,6 +170,7 @@ export default function App() {
     const next = PHOTO_SPECS.find((s) => s.id === id)
     if (!next) return
     setSpecId(id)
+    if (!printChosen) setPrintId(next.defaultPrintSizeId)
     if (markers) setCrop(autoFit(markers, next, session?.image))
     setBg((b) => ({ ...b, color: next.backgrounds[0].color }))
     setAttest({})
@@ -202,7 +205,7 @@ export default function App() {
           </span>
           <div>
             <h1>Passport Photo Sheet</h1>
-            <p>Crop, check and lay out passport photos for cheap Walgreens prints</p>
+            <p>Crop, check and lay out passport photos on a standard photo print</p>
           </div>
         </div>
         <span className="privacy-badge" title="All processing happens in your browser">
@@ -267,7 +270,10 @@ export default function App() {
           <LayoutStep
             spec={spec}
             print={print}
-            onPrint={setPrintId}
+            onPrint={(id) => {
+              setPrintId(id)
+              setPrintChosen(true)
+            }}
             mode={layoutMode}
             onMode={setLayoutMode}
             cutGuides={cutGuides}
@@ -300,7 +306,7 @@ export default function App() {
 
       <footer className="app__footer">
         <p>
-          Not affiliated with Walgreens or any government agency. Automatic checks help catch common problems but can’t guarantee
+          Not affiliated with any photo lab or government agency. Automatic checks help catch common problems but can’t guarantee
           acceptance. Always confirm the current rules with your issuing authority.
         </p>
       </footer>
