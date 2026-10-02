@@ -56,6 +56,8 @@ export interface PhotoSpec {
   glasses: 'forbidden' | 'discouraged' | 'allowed'
   /** Spec-specific wording for the glasses rule: the summary on the Upload step, and the warning when glasses are detected. */
   glassesNote?: { summary: string; detected: string }
+  /** Black-and-white photos are accepted as well as colour. */
+  allowsBlackAndWhite?: boolean
   /** Clothing must be coloured: white clothes blend into a white background. */
   requiresColouredClothing?: boolean
   /** Every spec needs the mouth closed; some also allow a smile. */
@@ -285,9 +287,50 @@ export const CANADA_50X70: PhotoSpec = {
   ],
   sourceUrl:
     'https://www.canada.ca/en/immigration-refugees-citizenship/services/canadian-passports/photos.html',
+  related: { specId: 'ca-visa', prompt: 'Applying for a Canadian visitor visa instead? That uses 35 × 45 mm photos.' },
 }
 
-export const PHOTO_SPECS: PhotoSpec[] = [US_PASSPORT, INDIA_2X2, INDIA_ONLINE, INTL_35X45, CANADA_50X70]
+export const CANADA_VISA: PhotoSpec = {
+  id: 'ca-visa',
+  label: 'Canada Visa',
+  sizeLabel: '35 × 45 mm',
+  countries: 'Canadian visitor visa (temporary resident visa)',
+  displayUnit: 'mm',
+  // The frame must be at least 35 × 45 mm; this is that size.
+  widthMm: 35,
+  heightMm: 45,
+  // Chin to crown. Canada measures to the top of the head, not the hair, so measuring
+  // to the top of the hair (as this app does) errs on the side of a smaller head.
+  headHeightMm: { min: 31, max: 36 },
+  // Not specified beyond "include the top of the shoulders"; this keeps the shoulders in frame.
+  topMarginMm: { min: 2, max: 6, target: 4 },
+  backgrounds: [WHITE, { id: 'lightgrey', label: 'Light grey', color: '#ededed' }],
+  backgroundMinLuminance: 205,
+  glasses: 'allowed',
+  allowsBlackAndWhite: true,
+  expression: 'neutral',
+  editingPolicy: 'Canada’s visa photo rules say digital photos must not be altered in any way.',
+  defaultPrintSizeId: '4x6',
+  attestations: [
+    RECENT,
+    {
+      id: 'glasses',
+      label: 'If I wear glasses: non-tinted prescription lenses, no reflections, and the frames don’t cover my eyes',
+    },
+    { id: 'headwear', label: 'No head covering, unless worn for religious reasons with my full face visible' },
+    FACE_VISIBLE,
+    NO_FILTERS,
+  ],
+  notes: [
+    'Send two identical photos with your application (and two for each family member applying with you), printed on quality photographic paper.',
+    'This is for paper applications. Online applications may have their own rules for uploaded photos.',
+  ],
+  sourceUrl:
+    'https://www.canada.ca/en/immigration-refugees-citizenship/services/application/application-forms-guides/temporary-resident-visa-application-photograph-specifications.html',
+  related: { specId: 'ca-50x70', prompt: 'Applying for a Canadian passport instead? That needs 50 × 70 mm photos.' },
+}
+
+export const PHOTO_SPECS: PhotoSpec[] = [US_PASSPORT, INDIA_2X2, INDIA_ONLINE, INTL_35X45, CANADA_50X70, CANADA_VISA]
 
 export function rangeTarget(r: Range): number {
   return r.target ?? (r.min + r.max) / 2

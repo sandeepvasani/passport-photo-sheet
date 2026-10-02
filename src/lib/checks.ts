@@ -622,9 +622,11 @@ export function runChecks(input: CheckInput): CheckResult[] {
       const lighting = lightingCheck(analysis.lighting)
       if (lighting) results.push(lighting)
 
+      const isColor = mean(face.chroma) >= 8
       const [mr, mg, mb] = face.rgb
       const tinted = mb > mr * 0.85 || mg > mr * 0.95
-      results.push({
+      // A black-and-white photo has no skin colour to judge (the colour check covers it).
+      if (isColor) results.push({
         id: 'skin-tone',
         label: 'Natural skin tones',
         status: tinted ? 'warn' : 'pass',
@@ -658,12 +660,15 @@ export function runChecks(input: CheckInput): CheckResult[] {
         }
       }
 
-      const isColor = mean(face.chroma) >= 8
       results.push({
         id: 'color',
-        label: 'Colour photo',
-        status: isColor ? 'pass' : 'fail',
-        detail: isColor ? 'Photo is in colour' : 'The photo looks black and white — colour photos are required.',
+        label: spec.allowsBlackAndWhite ? 'Colour or black and white' : 'Colour photo',
+        status: isColor || spec.allowsBlackAndWhite ? 'pass' : 'fail',
+        detail: isColor
+          ? 'Photo is in colour'
+          : spec.allowsBlackAndWhite
+            ? 'Black and white is allowed for this photo'
+            : 'The photo looks black and white — colour photos are required.',
       })
 
       // Focus measured over the eyes-to-mouth band, at 300 DPI scale.
