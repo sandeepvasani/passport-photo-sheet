@@ -337,29 +337,27 @@ export function eyewearChecks(spec: PhotoSpec, eyewear: EyewearAnalysis | null):
   return out
 }
 
+/** Exactly one face must be in the photo. */
+export function faceCountCheck(analysis: FaceAnalysis): CheckResult {
+  if (analysis.faceCount === 1) return { id: 'face', label: 'One face detected', status: 'pass', detail: 'Exactly one face found' }
+  if (analysis.faceCount === 0) {
+    return { id: 'face', label: 'Face detected', status: 'fail', detail: 'No face could be detected. Use a clear, front-facing photo with good lighting.' }
+  }
+  return {
+    id: 'face',
+    label: 'Only one person',
+    status: 'fail',
+    detail: `${analysis.faceCount} faces found. Only you can be in the photo, so retake it alone (and check there are no faces in pictures behind you).`,
+  }
+}
+
 /** Full compliance check of the finished photo. */
 export function runChecks(input: CheckInput): CheckResult[] {
   const { spec, image, analysis, markers, crop, bg, photo } = input
   const results: CheckResult[] = []
   const data = ctx2d(photo.canvas).getImageData(0, 0, photo.width, photo.height).data
 
-  results.push(
-    analysis.faceCount === 1
-      ? { id: 'face', label: 'One face detected', status: 'pass', detail: 'Exactly one face found' }
-      : analysis.faceCount === 0
-        ? {
-            id: 'face',
-            label: 'Face detected',
-            status: 'fail',
-            detail: 'No face could be detected. Use a clear, front-facing photo with good lighting.',
-          }
-        : {
-            id: 'face',
-            label: 'Only one person',
-            status: 'fail',
-            detail: `${analysis.faceCount} faces found — only the applicant may appear in the photo.`,
-          },
-  )
+  results.push(faceCountCheck(analysis))
 
   results.push(...geometryChecks(spec, markers, crop, image, bg))
   if (analysis.crownAtImageEdge) {

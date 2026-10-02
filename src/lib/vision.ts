@@ -443,15 +443,3 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
     eyewear: analyzeEyewear(segmenter, image, lms),
   }
 }
-
-/** Starting markers for manual placement when no face is detected. */
-export function defaultMarkers(image: LoadedImage): Markers {
-  const { width: w, height: h } = image
-  const s = Math.min(w, h)
-  return {
-    crown: { x: w / 2, y: h * 0.4 - s * 0.3 },
-    chin: { x: w / 2, y: h * 0.4 + s * 0.2 },
-    eyeLeft: { x: w / 2 - s * 0.08, y: h * 0.4 },
-    eyeRight: { x: w / 2 + s * 0.08, y: h * 0.4 },
-  }
-}

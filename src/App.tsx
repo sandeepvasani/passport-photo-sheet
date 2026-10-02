@@ -4,10 +4,10 @@ import { CheckStep } from './components/CheckStep'
 import { Stepper, type StepDef } from './components/common'
 import { CropStep } from './components/CropStep'
 import { LayoutStep } from './components/LayoutStep'
-import { UploadStep } from './components/UploadStep'
+import { UploadStep, type UploadError } from './components/UploadStep'
 import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
 import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSizes'
-import { backgroundCheck, eyewearChecks, runChecks, type CheckResult } from './lib/checks'
+import { backgroundCheck, eyewearChecks, faceCountCheck, runChecks, type CheckResult } from './lib/checks'
 import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
 import { canvasToJpeg, ctx2d, downloadBlob, loadImageFile, type LoadedImage } from './lib/image'
 import { computeLayout, type LayoutMode } from './lib/layout'
@@ -54,6 +54,16 @@ const defaultBackground = (spec: PhotoSpec): BackgroundSettings => ({
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
 
+const NO_FACE_ERROR: UploadError = {
+  message: 'We couldn’t find a face in this photo. Please try a different one:',
+  tips: [
+    'Your whole face is in the photo, looking straight at the camera.',
+    'The light is bright and even: not too dark, and no bright window behind you.',
+    'You’re not too far away: about 4 ft (1.2 m) from the camera works well.',
+    'Nothing covers your face: no mask, hat brim, hands or hair over your eyes.',
+  ],
+}
+
 export default function App() {
   const [specId, setSpecId] = useState(PHOTO_SPECS[0].id)
   const spec = PHOTO_SPECS.find((s) => s.id === specId) ?? PHOTO_SPECS[0]
@@ -71,7 +81,7 @@ export default function App() {
   const [attest, setAttest] = useState<Record<string, boolean>>({})
   const [ackWarnings, setAckWarnings] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<UploadError | null>(null)
   /** MODNet matte for background replacement, and the crop it was computed for. */
   const [matte, setMatte] = useState<{ layer: MaskLayer; crop: Crop } | null>(null)
   /** Crop for which computing the matte failed (so it isn't retried in a loop). */
@@ -147,7 +157,12 @@ export default function App() {
       setBusy('Finding your face…')
       await nextFrame()
       const analysis = await vision.analyzePhoto(image)
-      const m = analysis.markers ?? vision.defaultMarkers(image)
+      const m = analysis.markers
+      if (analysis.faceCount === 0 || !m) {
+        // Stay here: a photo without a detectable face can never pass the final check.
+        setError(NO_FACE_ERROR)
+        return
+      }
       setSession({ image, analysis })
       setMarkers(m)
       setCrop(autoFit(m, spec, image))
@@ -160,7 +175,7 @@ export default function App() {
       setStep('crop')
     } catch (e) {
       console.error(e)
-      setError(e instanceof Error ? e.message : 'Something went wrong while processing the photo.')
+      setError({ message: e instanceof Error ? e.message : 'Something went wrong while processing the photo.' })
     } finally {
       setBusy(null)
     }
@@ -235,8 +250,7 @@ export default function App() {
             markers={markers}
             crop={crop}
             bg={bg}
-            hasDetection={!!session.analysis.markers}
-            earlyIssues={eyewearChecks(spec, session.analysis.eyewear).filter((r) => r.status !== 'pass')}
+            earlyIssues={[faceCountCheck(session.analysis), ...eyewearChecks(spec, session.analysis.eyewear)].filter((r) => r.status !== 'pass')}
             onCrop={setCrop}
             onMarkers={onMarkers}
             autoRefit={autoRefit}

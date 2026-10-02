@@ -35,8 +35,18 @@ await page.screenshot({ path: join(out, '1-upload.png') })
 
 const t0 = Date.now()
 await page.getByTestId('file-input').setInputFiles(imagePath)
-await page.getByRole('heading', { name: 'Crop & position' }).waitFor({ timeout: 120_000 })
+const cropHeading = page.getByRole('heading', { name: 'Crop & position' })
+const uploadError = page.locator('.alert--error')
+await Promise.race([cropHeading.waitFor({ timeout: 120_000 }), uploadError.waitFor({ timeout: 120_000 })])
 console.log(`analysis took ${Date.now() - t0} ms`)
+if (await uploadError.isVisible()) {
+  // Photos that can't be used are stopped on the Upload screen.
+  await page.screenshot({ path: join(out, '1b-upload-error.png'), fullPage: true })
+  console.log('upload error:', await uploadError.innerText())
+  console.log(errors.length ? `ERRORS:\n${errors.join('\n')}` : 'no page errors')
+  await browser.close()
+  process.exit(0)
+}
 await page.waitForTimeout(300)
 await page.screenshot({ path: join(out, '2-crop.png'), fullPage: true })
 const lists = page.locator('.checks')

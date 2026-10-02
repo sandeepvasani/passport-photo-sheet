@@ -1,13 +1,19 @@
 import { useRef, useState } from 'react'
 import { formatRange, type PhotoSpec } from '../config/photoSpecs'
 
+export interface UploadError {
+  message: string
+  /** Suggestions shown as a list under the message. */
+  tips?: string[]
+}
+
 interface Props {
   specs: PhotoSpec[]
   spec: PhotoSpec
   onSpec: (id: string) => void
   onFile: (file: File) => void
   busy: string | null
-  error: string | null
+  error: UploadError | null
   hasPhoto: boolean
   onContinue: () => void
 }
@@ -141,9 +147,16 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
           />
         </div>
         {error && (
-          <p className="alert alert--error" role="alert">
-            {error}
-          </p>
+          <div className="alert alert--error" role="alert">
+            <p className="alert__message">{error.message}</p>
+            {error.tips && (
+              <ul className="alert__tips">
+                {error.tips.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
         {hasPhoto && !busy && (
           <div className="row row--end">

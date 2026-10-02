@@ -447,7 +447,6 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
 }
 
 interface StepProps extends EditorProps {
-  hasDetection: boolean
   /** Problems spotted at upload (e.g. glasses) worth knowing before cropping. */
   earlyIssues: CheckResult[]
   bg: BackgroundSettings
@@ -460,7 +459,7 @@ interface StepProps extends EditorProps {
 }
 
 export function CropStep(props: StepProps) {
-  const { image, spec, markers, crop, onCrop, bg, hasDetection } = props
+  const { image, spec, markers, crop, onCrop, bg } = props
   const m = measure(markers, crop, spec)
   const results = geometryChecks(spec, markers, crop, image, bg)
   const eyes = midpoint(markers.eyeLeft, markers.eyeRight)
@@ -479,12 +478,6 @@ export function CropStep(props: StepProps) {
       <aside className="panel">
         <h2>Crop &amp; position</h2>
         {props.earlyIssues.length > 0 && <CheckList results={props.earlyIssues} />}
-        {!hasDetection && (
-          <p className="alert alert--warn">
-            No face was detected, so this photo can’t pass the final check. Try a clear, front-facing photo with even lighting. You can still
-            drag the markers onto the head, chin and pupils to preview the crop.
-          </p>
-        )}
         <Slider
           label="Head size"
           value={m.headHeightMm}
@@ -507,11 +500,9 @@ export function CropStep(props: StepProps) {
           <button type="button" className="btn" onClick={props.onAutoFit}>
             Auto-fit to spec
           </button>
-          {hasDetection && (
-            <button type="button" className="btn" onClick={props.onResetMarkers}>
-              Reset markers
-            </button>
-          )}
+          <button type="button" className="btn" onClick={props.onResetMarkers}>
+            Reset markers
+          </button>
         </div>
         <label className="checkbox">
           <input type="checkbox" checked={props.autoRefit} onChange={(e) => props.onAutoRefit(e.target.checked)} />

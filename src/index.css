@@ -829,3 +829,15 @@ figcaption {
   font-weight: 600;
   margin: 0.9rem 0 0.4rem;
 }
+
+.alert__message {
+  margin: 0;
+  font-weight: 600;
+}
+
+.alert__tips {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.2rem;
+}
