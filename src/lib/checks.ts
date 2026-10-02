@@ -319,7 +319,9 @@ export function eyewearChecks(spec: PhotoSpec, eyewear: EyewearAnalysis | null):
         id: 'glasses',
         label: 'No glasses',
         status: 'warn',
-        detail: 'Glasses detected. Many countries don’t accept glasses in passport photos, so check your country’s rules or retake without them.',
+        detail:
+          spec.glassesNote?.detected ??
+          'Glasses detected. Many countries don’t accept glasses in passport photos, so check your country’s rules or retake without them.',
       },
     ]
   }

@@ -76,7 +76,10 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
           )}
           <div>
             <dt>Glasses</dt>
-            <dd>{{ forbidden: 'Not allowed', discouraged: 'Avoid (often not allowed)', allowed: 'Allowed: clear lenses, no glare' }[spec.glasses]}</dd>
+            <dd>
+              {spec.glassesNote?.summary ??
+                { forbidden: 'Not allowed', discouraged: 'Avoid (often not allowed)', allowed: 'Allowed: clear lenses, no glare' }[spec.glasses]}
+            </dd>
           </div>
         </dl>
         {spec.sourceUrl && (

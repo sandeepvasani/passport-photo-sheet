@@ -54,6 +54,8 @@ export interface PhotoSpec {
   /** Darkest average background luminance (0–255) that still reads as "light / white". */
   backgroundMinLuminance: number
   glasses: 'forbidden' | 'discouraged' | 'allowed'
+  /** Spec-specific wording for the glasses rule: the summary on the Upload step, and the warning when glasses are detected. */
+  glassesNote?: { summary: string; detected: string }
   /** Clothing must be coloured: white clothes blend into a white background. */
   requiresColouredClothing?: boolean
   /** Every spec needs the mouth closed; some also allow a smile. */
@@ -166,7 +168,10 @@ export const INDIA_2X2: PhotoSpec = {
     'Rules are relaxed for children under 10 (head size and eye position) and babies under one (eyes needn’t be open). The child must be alone in the photo, with the mouth closed.',
   ],
   sourceUrl: 'https://visa.vfsglobal.com/one-pager/india/united-states-of-america/passport-services/pdf/photo-specifiation.pdf',
-  related: { specId: 'in-online', prompt: 'Need a digital photo for an Indian online application form too (630 × 810 px)?' },
+  related: {
+    specId: 'in-online',
+    prompt: 'Applying for a passport, PCC, passport surrender or GEP? The Passport Seva portal also needs an uploaded 630 × 810 px photo.',
+  },
 }
 
 export const INDIA_ONLINE: PhotoSpec = {
@@ -174,20 +179,39 @@ export const INDIA_ONLINE: PhotoSpec = {
   id: 'in-online',
   label: 'India Online Upload',
   sizeLabel: '35 × 45 mm',
-  countries: 'Digital photo for Indian online application forms: 630 × 810 px JPEG, under 250 KB',
+  countries: 'Photo upload on the Passport Seva portal (GPSP 2.0) for passport, PCC, surrender and GEP applications: 630 × 810 px',
   displayUnit: 'mm',
   widthMm: 35,
   heightMm: 45,
-  // The upload rules give only the size and file limits, so this uses the ICAO head size for 35 × 45 mm photos.
-  headHeightMm: { min: 32, max: 36, target: 34 },
+  // "The face takes up 80–85% of the photograph", read as the head's share of the photo height.
+  headHeightMm: { min: 36, max: 38.25, target: 37 },
   eyeFromBottomMm: undefined,
   eyeLineRequired: false,
-  topMarginMm: { min: 2, max: 6, target: 4 },
+  topMarginMm: { min: 1.5, max: 5, target: 3 },
+  glasses: 'discouraged',
+  glassesNote: {
+    summary: 'Take them off (to avoid reflections)',
+    detected: 'Glasses detected. India’s guidelines ask you to take glasses off to avoid reflections, so retake the photo without them.',
+  },
+  editingPolicy: 'India’s guidelines say the photo must be unaltered by computer software.',
+  attestations: [
+    RECENT,
+    { id: 'glasses', label: 'I’m not wearing glasses' },
+    { id: 'distance', label: 'Taken from about 1.5 m (5 ft) away, not as a close-up selfie' },
+    {
+      id: 'headwear',
+      label: 'No head covering, unless worn for religious reasons with the face visible from chin to forehead and both edges',
+    },
+    FACE_VISIBLE,
+    { id: 'attire', label: 'Plain coloured clothing (for example a medium blue shirt), not patterned or pure white' },
+    NO_FILTERS,
+  ],
   notes: [
     'Upload the downloaded file as it is. It’s already 630 × 810 pixels and under 250 KB; opening and re-saving it in another app can change both.',
+    'This type is for the upload. If you also need printed photos, use the India Passport / Visa / OCI type (2 × 2 in).',
     INDIA_2X2.notes[1],
   ],
-  sourceUrl: undefined,
+  sourceUrl: 'https://mportal.passportindia.gov.in/pdf/Guidelines_for_ICAO_Compliant_Photographs_for_Passport_Applications.pdf',
   digital: { widthPx: 630, heightPx: 810, maxBytes: 250_000 },
   related: { specId: 'in-2x2', prompt: 'Need printed 2 × 2 in photos too?' },
 }
