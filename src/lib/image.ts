@@ -180,30 +180,46 @@ export async function canvasToJpeg(canvas: HTMLCanvasElement, dpi: number, quali
 }
 
 /**
- * Encodes at the highest JPEG quality whose file fits in `maxBytes`. Throws if even
- * low quality doesn't fit.
+ * A file-size limit in KB. Limits are stored in whichever unit makes them strictest
+ * (a 40 KB minimum as 40 × 1,024 bytes, a 120 KB maximum as 120,000), so both show as round numbers.
  */
-export async function canvasToJpegUnder(canvas: HTMLCanvasElement, dpi: number, maxBytes: number): Promise<Blob> {
-  let best = await canvasToJpeg(canvas, dpi, 0.95)
-  if (best.size <= maxBytes) return best
+export function formatKb(bytes: number): number {
+  return bytes % 1024 === 0 ? bytes / 1024 : Math.round(bytes / 1000)
+}
+
+/**
+ * Encodes at the highest JPEG quality whose file fits in `maxBytes` (and, when given,
+ * is at least `minBytes`). Throws when no quality gives a file in that range.
+ */
+export async function canvasToJpegSized(canvas: HTMLCanvasElement, dpi: number, maxBytes: number, minBytes = 0): Promise<Blob> {
+  const kb = formatKb
+  let blob = await canvasToJpeg(canvas, dpi, 0.95)
+  if (blob.size < minBytes) {
+    // Plain photos can come out too small: spend more bytes on quality.
+    for (const q of [0.98, 1]) {
+      blob = await canvasToJpeg(canvas, dpi, q)
+      if (blob.size >= minBytes) break
+    }
+    if (blob.size < minBytes) throw new Error(`Couldn’t make the photo as large as ${kb(minBytes)} KB`)
+    if (blob.size <= maxBytes) return blob
+  }
+  if (blob.size <= maxBytes) return blob
   let lo = 0.3
   let hi = 0.95
   let fits: Blob | null = null
   for (let i = 0; i < 7; i++) {
     const q = (lo + hi) / 2
-    const blob = await canvasToJpeg(canvas, dpi, q)
-    if (blob.size <= maxBytes) {
-      fits = blob
+    const b = await canvasToJpeg(canvas, dpi, q)
+    if (b.size <= maxBytes) {
+      fits = b
       lo = q
     } else {
       hi = q
     }
   }
-  if (!fits) {
-    best = await canvasToJpeg(canvas, dpi, lo)
-    if (best.size > maxBytes) throw new Error(`Couldn’t make the photo smaller than ${Math.round(maxBytes / 1000)} KB`)
-    fits = best
-  }
+  fits ??= await canvasToJpeg(canvas, dpi, lo)
+  if (fits.size > maxBytes) throw new Error(`Couldn’t make the photo smaller than ${kb(maxBytes)} KB`)
+  if (fits.size < minBytes) throw new Error(`Couldn’t fit the photo between ${kb(minBytes)} and ${kb(maxBytes)} KB`)
   return fits
 }
 

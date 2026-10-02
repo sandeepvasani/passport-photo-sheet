@@ -30,7 +30,7 @@ page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && errors.push(m.text()))
 
 await page.goto(url)
-const specLabel = { 'us-2x2': 'US Passport / Visa', 'in-2x2': 'India Visa / OCI', 'in-online': 'India Passport \\(Passport Seva\\)', 'intl-35x45': '35 × 45 mm Passport', 'ca-50x70': 'Canada Passport', 'ca-visa': 'Canada Visa' }[specId]
+const specLabel = { 'us-2x2': 'US Passport / Visa', 'in-2x2': 'India Visa / OCI', 'in-online': 'India Passport \\(Passport Seva\\)', 'intl-35x45': '35 × 45 mm Passport', 'ca-50x70': 'Canada Passport', 'ca-visa': 'Canada Visa', 'cn-visa': 'China Visa(?! Upload)', 'cn-visa-upload': 'China Visa Upload' }[specId]
 await page.getByRole('radio', { name: new RegExp(specLabel.replace(/[/×]/g, '.')) }).click()
 await page.screenshot({ path: join(out, '1-upload.png') })
 
@@ -83,28 +83,32 @@ if (process.env.REPLACE_BG) {
   await page.screenshot({ path: join(out, '3b-background-replaced.png'), fullPage: true })
 }
 
-await page.getByRole('button', { name: /Next: Print layout/ }).click()
-await page.getByRole('radio', { name: new RegExp(printLabel) }).click()
-await page.waitForTimeout(500)
-await page.screenshot({ path: join(out, '4-layout.png'), fullPage: true })
+// Upload-only photo types skip the print layout step.
+const toLayout = page.getByRole('button', { name: /Next: Print layout/ })
+if (await toLayout.count()) {
+  await toLayout.click()
+  await page.getByRole('radio', { name: new RegExp(printLabel) }).click()
+  await page.waitForTimeout(500)
+  await page.screenshot({ path: join(out, '4-layout.png'), fullPage: true })
+}
 
 await page.getByRole('button', { name: /Next: Check/ }).click()
 await page.waitForTimeout(800)
 console.log('checks:\n' + (await page.locator('.checks').first().innerText()))
 const sheetButton = page.getByRole('button', { name: /print sheet/ })
-console.log('download enabled before confirming:', await sheetButton.isEnabled())
+const photoButton = page.getByRole('button', { name: /single digital photo|online upload/ })
+console.log('download enabled before confirming:', await photoButton.isEnabled())
 console.log((await page.locator('.download-todo').innerText()).trim())
 await page.screenshot({ path: join(out, '5a-check-unconfirmed.png'), fullPage: true })
 for (const box of await page.locator('.attestations input[type=checkbox]').all()) await box.check()
 await page.screenshot({ path: join(out, '5-check.png'), fullPage: true })
 console.log(`to-do after confirming: ${(await page.locator('.download-todo').count()) ? 'still shown' : 'gone'}`)
-console.log('download enabled after confirming:', await sheetButton.isEnabled())
+console.log('download enabled after confirming:', await photoButton.isEnabled())
 
-if (await sheetButton.isEnabled()) {
-  for (const [button, file] of [
-    [sheetButton, 'sheet.jpg'],
-    [page.getByRole('button', { name: /single digital photo|online upload/ }), 'photo.jpg'],
-  ]) {
+if (await photoButton.isEnabled()) {
+  // Upload-only types have no print sheet.
+  const buttons = (await sheetButton.count()) ? [[sheetButton, 'sheet.jpg'], [photoButton, 'photo.jpg']] : [[photoButton, 'photo.jpg']]
+  for (const [button, file] of buttons) {
     const [download] = await Promise.all([page.waitForEvent('download'), button.click()])
     await download.saveAs(join(out, file))
     console.log('saved', download.suggestedFilename(), `${statSync(join(out, file)).size} bytes`)

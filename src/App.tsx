@@ -9,7 +9,7 @@ import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
 import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSizes'
 import { backgroundCheck, eyewearChecks, faceCountCheck, runChecks, type CheckResult } from './lib/checks'
 import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
-import { canvasToJpeg, canvasToJpegUnder, ctx2d, downloadBlob, loadImageFile, releaseCanvas, releaseImage, type LoadedImage } from './lib/image'
+import { canvasToJpeg, canvasToJpegSized, ctx2d, downloadBlob, loadImageFile, releaseCanvas, releaseImage, type LoadedImage } from './lib/image'
 import { computeLayout, type LayoutMode } from './lib/layout'
 import type { MaskLayer } from './lib/mask'
 import { matteCovers, portraitMatte } from './lib/matte'
@@ -30,6 +30,7 @@ const STEPS: StepDef<StepId>[] = [
 /** Which step fixes each check. */
 const FIX_STEP: Record<string, StepId> = {
   head: 'crop',
+  'face-width': 'crop',
   eyes: 'crop',
   top: 'crop',
   chin: 'crop',
@@ -67,6 +68,8 @@ const NO_FACE_ERROR: UploadError = {
 export default function App() {
   const [specId, setSpecId] = useState(PHOTO_SPECS[0].id)
   const spec = PHOTO_SPECS.find((s) => s.id === specId) ?? PHOTO_SPECS[0]
+  /** The photo only goes into an online form, so there's no print layout step. */
+  const uploadOnly = !!spec.digital?.uploadOnly
   const [step, setStep] = useState<StepId>('upload')
   const [session, setSession] = useState<Session | null>(null)
   const [markers, setMarkers] = useState<Markers | null>(null)
@@ -253,7 +256,7 @@ export default function App() {
     const dpi = (digital.widthPx / spec.widthMm) * 25.4
     const out = renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, dpi, subject)
     try {
-      const blob = await canvasToJpegUnder(out.canvas, Math.round(dpi), digital.maxBytes)
+      const blob = await canvasToJpegSized(out.canvas, Math.round(dpi), digital.maxBytes, digital.minBytes)
       downloadBlob(blob, `passport-photo-${spec.id}-${out.width}x${out.height}.jpg`)
       setSaved({ text: `Saved: ${out.width} × ${out.height} px JPEG, ${Math.ceil(blob.size / 1000)} KB.` })
     } catch (e) {
@@ -287,7 +290,7 @@ export default function App() {
         </span>
       </header>
 
-      <Stepper steps={STEPS} current={step} enabled={(s) => s === 'upload' || !!session} onSelect={goto} />
+      <Stepper steps={uploadOnly ? STEPS.filter((s) => s.id !== 'layout') : STEPS} current={step} enabled={(s) => s === 'upload' || !!session} onSelect={goto} />
 
       <main className="app__main">
         {step === 'upload' && (
@@ -342,7 +345,8 @@ export default function App() {
             check={bgResult}
             matteStatus={matteStatus}
             onBack={() => goto('crop')}
-            onNext={() => goto('layout')}
+            onNext={() => goto(uploadOnly ? 'check' : 'layout')}
+            nextLabel={uploadOnly ? 'Next: Check & download →' : 'Next: Print layout →'}
           />
         )}
         {step === 'layout' && session && (
@@ -385,7 +389,7 @@ export default function App() {
               changeSpec(id)
               goto('crop')
             }}
-            onBack={() => goto('layout')}
+            onBack={() => goto(uploadOnly ? 'background' : 'layout')}
           />
         )}
       </main>

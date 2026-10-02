@@ -86,9 +86,21 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
   out.push({
     id: 'head',
     label: 'Head size (chin to top of hair)',
-    status: inRange(m.headHeightMm, spec.headHeightMm) ? 'pass' : 'fail',
-    detail: `${formatLength(m.headHeightMm, u)} — must be ${formatRange(spec.headHeightMm, u)}`,
+    status: inRange(m.headHeightMm, spec.headHeightMm) ? 'pass' : spec.headHeightGuideline ? 'warn' : 'fail',
+    detail: spec.headHeightGuideline
+      ? `${formatLength(m.headHeightMm, u)} (guideline ${formatRange(spec.headHeightMm, u)})`
+      : `${formatLength(m.headHeightMm, u)} — must be ${formatRange(spec.headHeightMm, u)}`,
   })
+
+  if (spec.faceWidthMm && m.faceWidthMm !== undefined) {
+    // Measured from the face mesh, which is close to but not exactly the face's outline, so a warning.
+    out.push({
+      id: 'face-width',
+      label: 'Face width',
+      status: inRange(m.faceWidthMm, spec.faceWidthMm) ? 'pass' : 'warn',
+      detail: `${formatLength(m.faceWidthMm, u)} — should be ${formatRange(spec.faceWidthMm, u)}`,
+    })
+  }
 
   if (spec.eyeFromBottomMm) {
     out.push({
@@ -101,7 +113,14 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
     })
   }
 
-  if (m.topMarginMm < -0.2) {
+  if (spec.topMarginMm && spec.topMarginRequired) {
+    out.push({
+      id: 'top',
+      label: 'Space above head',
+      status: inRange(m.topMarginMm, spec.topMarginMm, 0.3) ? 'pass' : 'fail',
+      detail: `${formatLength(m.topMarginMm, u)} — must be ${formatRange(spec.topMarginMm, u)}`,
+    })
+  } else if (m.topMarginMm < -0.2) {
     out.push({
       id: 'top',
       label: 'Space above head',
@@ -163,7 +182,8 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
   }
 
   const dpi = crop.pxPerMm * 25.4
-  out.push({
+  // Upload-only photos are never printed, so only the upload resolution matters.
+  if (!spec.digital?.uploadOnly) out.push({
     id: 'resolution',
     label: 'Print resolution',
     status: dpi >= 290 ? 'pass' : dpi >= 180 ? 'warn' : 'fail',

@@ -21,7 +21,7 @@ import { CheckList, Slider } from './common'
 /** Context shown around the frame, as a fraction of frame width. */
 const PAD = 0.17
 
-type MarkerKey = keyof Markers
+type MarkerKey = Exclude<keyof Markers, 'faceWidthPx'>
 
 type Drag =
   | { kind: 'pan'; last: Point }
@@ -106,7 +106,7 @@ function drawEditor(
     ctx.stroke()
 
     // Allowed eye zone (or crown zone when the spec defines one instead).
-    const zone = spec.eyeFromBottomMm
+    const zone = spec.eyeFromBottomMm && Number.isFinite(spec.eyeFromBottomMm.max)
       ? { top: spec.heightMm - spec.eyeFromBottomMm.max, bottom: spec.heightMm - spec.eyeFromBottomMm.min, label: 'eyes', color: '250, 204, 21' }
       : spec.topMarginMm
         ? { top: spec.topMarginMm.min, bottom: spec.topMarginMm.max, label: 'top of head', color: '56, 189, 248' }

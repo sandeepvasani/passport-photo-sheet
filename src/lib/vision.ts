@@ -683,6 +683,7 @@ function analyzeSubject(
       chin,
       eyeLeft: a.x < b.x ? a : b,
       eyeRight: a.x < b.x ? b : a,
+      faceWidthPx: Math.hypot(lms[LM.faceRight].x - lms[LM.faceLeft].x, lms[LM.faceRight].y - lms[LM.faceLeft].y),
     },
     blendshapes: main.blendshapes,
     pose: main.matrix ? poseFromMatrix(main.matrix) : null,

@@ -2,6 +2,7 @@ import { PHOTO_SPECS, type PhotoSpec } from '../config/photoSpecs'
 import { PRINT_DPI, type PrintSize } from '../config/printSizes'
 import type { CheckResult } from '../lib/checks'
 import type { RenderedPhoto } from '../lib/render'
+import { formatKb } from '../lib/image'
 import { CanvasPreview, CheckList } from './common'
 
 interface Props {
@@ -39,6 +40,12 @@ export function CheckStep(props: Props) {
   const ready = unconfirmed === 0 && failuresAccepted && warningsAccepted
   const failedNames = fails.map((r) => `“${r.label}”`).join(', ')
   const digital = spec.digital
+  const uploadOnly = !!digital?.uploadOnly
+  const fileSizeRule = digital
+    ? digital.minBytes
+      ? `${formatKb(digital.minBytes)}–${formatKb(digital.maxBytes)} KB`
+      : `under ${formatKb(digital.maxBytes)} KB`
+    : ''
   const related = PHOTO_SPECS.find((s) => s.id === spec.related?.specId)
 
   const todo = [
@@ -56,33 +63,48 @@ export function CheckStep(props: Props) {
           <figure>
             <CanvasPreview canvas={props.photo.canvas} label="Final passport photo" className="photo-frame" />
             <figcaption>
-              {spec.label} · {spec.sizeLabel}
+              {spec.label} · {digital ? `${digital.widthPx} × ${digital.heightPx} px` : spec.sizeLabel}
             </figcaption>
           </figure>
-          <figure>
-            <CanvasPreview canvas={props.sheet} label="Print sheet" className="sheet-thumb" />
-            <figcaption>
-              {print.label} sheet · {props.photoCount} photos
-            </figcaption>
-          </figure>
+          {!uploadOnly && (
+            <figure>
+              <CanvasPreview canvas={props.sheet} label="Print sheet" className="sheet-thumb" />
+              <figcaption>
+                {print.label} sheet · {props.photoCount} photos
+              </figcaption>
+            </figure>
+          )}
         </div>
 
-        <div className="print-help">
-          <h3>Getting it printed</h3>
-          <ol>
-            <li>Download the print sheet below.</li>
-            <li>
-              Order a <strong>{print.label}</strong> photo print from any photo lab, pharmacy, supermarket photo counter or online print
-              service. Matte or glossy are both fine.
-            </li>
-            <li>
-              The file is {Math.round(print.widthIn * PRINT_DPI)} × {Math.round(print.heightIn * PRINT_DPI)} pixels, exactly {print.label} at{' '}
-              {PRINT_DPI} DPI (the standard print resolution), so every photo prints at exactly {spec.sizeLabel}. Choose the same print size,
-              keep the whole image selected if the order screen offers cropping, and turn off any auto-enhance.
-            </li>
-            <li>At home, cut along the grey lines and measure one photo with a ruler: it should be exactly {spec.sizeLabel}.</li>
-          </ol>
-        </div>
+        {uploadOnly ? (
+          <div className="print-help">
+            <h3>Uploading it</h3>
+            <ol>
+              <li>Download the photo below.</li>
+              <li>
+                Upload it to the online form as it is. It’s exactly {digital!.widthPx} × {digital!.heightPx} pixels and {fileSizeRule}; editing or
+                re-saving it in another app can change that.
+              </li>
+            </ol>
+          </div>
+        ) : (
+          <div className="print-help">
+            <h3>Getting it printed</h3>
+            <ol>
+              <li>Download the print sheet below.</li>
+              <li>
+                Order a <strong>{print.label}</strong> photo print from any photo lab, pharmacy, supermarket photo counter or online print
+                service. Matte or glossy are both fine.
+              </li>
+              <li>
+                The file is {Math.round(print.widthIn * PRINT_DPI)} × {Math.round(print.heightIn * PRINT_DPI)} pixels, exactly {print.label} at{' '}
+                {PRINT_DPI} DPI (the standard print resolution), so every photo prints at exactly {spec.sizeLabel}. Choose the same print size,
+                keep the whole image selected if the order screen offers cropping, and turn off any auto-enhance.
+              </li>
+              <li>At home, cut along the grey lines and measure one photo with a ruler: it should be exactly {spec.sizeLabel}.</li>
+            </ol>
+          </div>
+        )}
       </section>
 
       <aside className="panel">
@@ -138,12 +160,14 @@ export function CheckStep(props: Props) {
               <button type="button" className="btn btn--primary btn--large" disabled={!ready} onClick={props.onDownloadPhoto}>
                 Download for online upload
                 <span className="btn__sub">
-                  {digital.widthPx} × {digital.heightPx} px JPEG, under {Math.round(digital.maxBytes / 1000)} KB
+                  {digital.widthPx} × {digital.heightPx} px JPEG, {fileSizeRule}
                 </span>
               </button>
-              <button type="button" className="btn" disabled={!ready} onClick={props.onDownloadSheet}>
-                Download {print.label} print sheet
-              </button>
+              {!uploadOnly && (
+                <button type="button" className="btn" disabled={!ready} onClick={props.onDownloadSheet}>
+                  Download {print.label} print sheet
+                </button>
+              )}
             </>
           ) : (
             <>

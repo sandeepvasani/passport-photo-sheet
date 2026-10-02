@@ -9,6 +9,7 @@
 
 export interface Range {
   min: number
+  /** Infinity when only a minimum is given. */
   max: number
   /** Preferred value for auto-fit; defaults to the midpoint. */
   target?: number
@@ -32,6 +33,10 @@ export interface DigitalUpload {
   heightPx: number
   /** Largest file accepted, in bytes. */
   maxBytes: number
+  /** Smallest file accepted, in bytes. */
+  minBytes?: number
+  /** The photo only goes into an online form: no print sheet (its shape may not be a print size). */
+  uploadOnly?: boolean
 }
 
 export interface PhotoSpec {
@@ -44,12 +49,17 @@ export interface PhotoSpec {
   widthMm: number
   heightMm: number
   headHeightMm: Range
+  /** The head height is only a guide (warning), because another rule (face width) sets the size. */
+  headHeightGuideline?: boolean
+  /** Face width across the cheeks at ear level; when set, auto-fit sizes the head to it. */
+  faceWidthMm?: Range
   /** Eye line measured up from the bottom edge of the photo. */
   eyeFromBottomMm?: Range
   /** Whether the eye line is an official requirement (fail) or only a positioning guideline (warning). */
   eyeLineRequired?: boolean
-  /** Space between the top of the head and the top edge (layout guideline, warning only). */
+  /** Space between the top of the head and the top edge (a guideline, unless topMarginRequired). */
   topMarginMm?: Range
+  topMarginRequired?: boolean
   backgrounds: BackgroundSwatch[]
   /** Darkest average background luminance (0–255) that still reads as "light / white". */
   backgroundMinLuminance: number
@@ -330,7 +340,81 @@ export const CANADA_VISA: PhotoSpec = {
   related: { specId: 'ca-50x70', prompt: 'Applying for a Canadian passport instead? That needs 50 × 70 mm photos.' },
 }
 
-export const PHOTO_SPECS: PhotoSpec[] = [US_PASSPORT, INDIA_2X2, INDIA_ONLINE, INTL_35X45, CANADA_50X70, CANADA_VISA]
+const CHINA_SOURCE = 'https://us.china-embassy.gov.cn/eng/lsfw/zj/qz2021/201612/W020210801080249838040.jpg'
+
+const CHINA_COMMON = {
+  displayUnit: 'mm',
+  backgrounds: [WHITE],
+  backgroundMinLuminance: 222,
+  glasses: 'allowed',
+  expression: 'neutral',
+  editingPolicy: 'China’s requirements ask for a white or near-white background and natural skin tones, and don’t allow damage or impurities in the photo.',
+  defaultPrintSizeId: '4x6',
+  attestations: [
+    RECENT,
+    { id: 'glasses', label: 'If I wear glasses: lenses not tinted, no glare or shadows, and the frames don’t cover my eyes' },
+    { id: 'ears', label: 'Both ears are visible' },
+    { id: 'headwear', label: 'No hat or head covering, unless worn for religious reasons without hiding any facial features' },
+    FACE_VISIBLE,
+    NO_FILTERS,
+  ],
+} satisfies Partial<PhotoSpec>
+
+export const CHINA_VISA: PhotoSpec = {
+  ...CHINA_COMMON,
+  id: 'cn-visa',
+  label: 'China Visa',
+  sizeLabel: '33 × 48 mm',
+  countries: 'Printed photo for the Chinese visa application form',
+  widthMm: 33,
+  heightMm: 48,
+  headHeightMm: { min: 28, max: 33 },
+  faceWidthMm: { min: 15, max: 22 },
+  // With the head 28–33 mm, this also leaves the required 7 mm or more below the chin.
+  topMarginMm: { min: 3, max: 5 },
+  topMarginRequired: true,
+  notes: ['The background must be white or close to white, with no border around the photo.'],
+  sourceUrl: CHINA_SOURCE,
+  related: { specId: 'cn-visa-upload', prompt: 'Applying online? The online form needs a digital photo (420 × 560 px, 40–120 KB).' },
+}
+
+// The digital rules are given in pixels for a 354 × 472 px photo; they're converted to
+// a 33 × 44 mm frame of the same 3:4 shape (10.73 px per mm at that size).
+const CN_PX = 354 / 33
+
+export const CHINA_VISA_UPLOAD: PhotoSpec = {
+  ...CHINA_COMMON,
+  id: 'cn-visa-upload',
+  label: 'China Visa Upload',
+  sizeLabel: '3:4',
+  countries: 'Digital photo for the Chinese online visa application',
+  widthMm: 33,
+  heightMm: 44,
+  // Not given for the digital photo; face width sets the size, so this is only a guide.
+  headHeightMm: { min: 28, max: 37 },
+  headHeightGuideline: true,
+  // "Face width at 205 pixels ± 14 pixels".
+  faceWidthMm: { min: round2(191 / CN_PX), max: round2(219 / CN_PX), target: round2(205 / CN_PX) },
+  // "10–70 pixels" from the top edge to the crown.
+  topMarginMm: { min: round2(10 / CN_PX), max: round2(70 / CN_PX) },
+  topMarginRequired: true,
+  // "> 256 pixels" from the bottom edge to the eye line.
+  eyeFromBottomMm: { min: round2(256 / CN_PX), max: Infinity },
+  eyeLineRequired: true,
+  notes: [
+    'Upload the downloaded file as it is. It’s already 420 × 560 pixels and 40–120 KB; opening and re-saving it in another app can change both.',
+    'When hair is very high, it may be cut off at the top of the digital photo, as long as the face is the right size.',
+  ],
+  sourceUrl: CHINA_SOURCE,
+  digital: { widthPx: 420, heightPx: 560, minBytes: 40 * 1024, maxBytes: 120_000, uploadOnly: true },
+  related: { specId: 'cn-visa', prompt: 'Need the printed photo for the application form too (33 × 48 mm)?' },
+}
+
+export const PHOTO_SPECS: PhotoSpec[] = [US_PASSPORT, INDIA_2X2, INDIA_ONLINE, INTL_35X45, CANADA_50X70, CANADA_VISA, CHINA_VISA, CHINA_VISA_UPLOAD]
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100
+}
 
 export function rangeTarget(r: Range): number {
   return r.target ?? (r.min + r.max) / 2
@@ -342,9 +426,9 @@ export function formatLength(mm: number, unit: PhotoSpec['displayUnit']): string
 
 export function formatRange(r: Range, unit: PhotoSpec['displayUnit']): string {
   if (unit === 'in') {
-    return `${formatInches(r.min)}–${formatInches(r.max)} in`
+    return Number.isFinite(r.max) ? `${formatInches(r.min)}–${formatInches(r.max)} in` : `at least ${formatInches(r.min)} in`
   }
-  return `${r.min}–${r.max} mm`
+  return Number.isFinite(r.max) ? `${r.min}–${r.max} mm` : `at least ${r.min} mm`
 }
 
 /** Formats a length as fractional inches (e.g. 1⅜, 1⅓) when it lands on an eighth or a third. */

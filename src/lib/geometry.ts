@@ -26,6 +26,8 @@ export interface Markers {
   eyeLeft: Point
   /** Eye that appears on the right of the image. */
   eyeRight: Point
+  /** Face width across the cheeks at ear level, in source pixels (from the face mesh). */
+  faceWidthPx?: number
 }
 
 export interface Measurements {
@@ -35,6 +37,8 @@ export interface Measurements {
   chinFromBottomMm: number
   /** Horizontal offset of the eye midpoint from the frame centre (+ = right). */
   centerOffsetMm: number
+  /** Face width in the finished photo, when the face mesh provided it. */
+  faceWidthMm?: number
   /** Residual tilt of the eye line in the finished photo (degrees, + = clockwise). */
   tiltDeg: number
 }
@@ -104,6 +108,7 @@ export function measure(markers: Markers, crop: Crop, spec: PhotoSpec): Measurem
     topMarginMm: crown.y,
     chinFromBottomMm: spec.heightMm - chin.y,
     centerOffsetMm: eyes.x - spec.widthMm / 2,
+    faceWidthMm: markers.faceWidthPx ? markers.faceWidthPx / crop.pxPerMm : undefined,
     tiltDeg: (Math.atan2(eR.y - eL.y, eR.x - eL.x) * 180) / Math.PI,
   }
 }
@@ -131,9 +136,19 @@ export function autoFit(markers: Markers, spec: PhotoSpec, image?: { width: numb
   const k = Math.min(0.9, Math.max(0.1, -crownB / headPx))
 
   const H = spec.heightMm
-  const head = spec.headHeightMm
+  let head = spec.headHeightMm
+  if (spec.faceWidthMm && markers.faceWidthPx) {
+    // The face width sets the size: keep the head heights that put this face's width in range.
+    const ratio = markers.faceWidthPx / headPx
+    const w = spec.faceWidthMm
+    const min = Math.max(head.min, w.min / ratio)
+    const max = Math.min(head.max, w.max / ratio)
+    if (min < max) head = { min, max, target: Math.min(max, Math.max(min, rangeTarget(w) / ratio)) }
+  }
   const headTarget = rangeTarget(head)
-  const eyeR = spec.eyeFromBottomMm
+  // An eye line with only a minimum is a constraint, not a position to aim for.
+  const eyeR = spec.eyeFromBottomMm && Number.isFinite(spec.eyeFromBottomMm.max) ? spec.eyeFromBottomMm : undefined
+  const eyeMin = spec.eyeFromBottomMm && !eyeR ? spec.eyeFromBottomMm.min : undefined
   const topR = spec.topMarginMm
   const minTop = topR?.min ?? 1
 
@@ -162,7 +177,7 @@ export function autoFit(markers: Markers, spec: PhotoSpec, image?: { width: numb
         eyeV = H - eb
         posCost = ((eb - rangeTarget(eyeR)) / (eyeR.max - eyeR.min)) ** 2
       } else if (topR) {
-        const t = topR.min + ((topR.max - topR.min) * j) / steps
+        const t = spec.topMarginRequired ? inset(topR, j / steps) : topR.min + ((topR.max - topR.min) * j) / steps
         eyeV = t + k * headMm
         posCost = ((t - rangeTarget(topR)) / (topR.max - topR.min)) ** 2
       } else {
@@ -175,6 +190,7 @@ export function autoFit(markers: Markers, spec: PhotoSpec, image?: { width: numb
       if (crownV < minTop) cost += 50 + 50 * (minTop - crownV) ** 2
       if (topR && crownV > topR.max) cost += 5 * (crownV - topR.max) ** 2
       if (chinV > H) cost += 100
+      if (eyeMin !== undefined && H - eyeV < eyeMin + 0.2) cost += 50 + 50 * (eyeMin + 0.2 - (H - eyeV)) ** 2
       // Blank frame area outweighs any preference for mid-range values.
       if (image && cost < best.cost) cost += 10 * overhangMm(cropFor(headMm, eyeV), spec, image.width, image.height)
       if (cost < best.cost) best = { cost, headMm, eyeV }

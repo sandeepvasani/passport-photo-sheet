@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CANADA_50X70, INDIA_2X2, INTL_35X45, PHOTO_SPECS, US_PASSPORT, formatRange } from '../config/photoSpecs'
+import { CANADA_50X70, CHINA_VISA, CHINA_VISA_UPLOAD, INDIA_2X2, INTL_35X45, PHOTO_SPECS, US_PASSPORT, formatRange } from '../config/photoSpecs'
 import { autoFit, frameToSource, measure, sourceToFrame, sourceToOutputTransform, transformCropAbout, uncoveredFraction, type Markers } from './geometry'
 
 /** A face in a 3000×4000 photo, head tilted by `tiltDeg`. */
@@ -141,5 +141,44 @@ describe('formatRange', () => {
 
   it('shows thirds of an inch', () => {
     expect(formatRange(INDIA_2X2.eyeFromBottomMm!, 'in')).toBe('1⅛–1⅓ in')
+  })
+})
+
+describe('face-width sizing', () => {
+  // Face width ÷ head height measured on the test photos ranged from 0.54 to 0.63.
+  for (const ratio of [0.54, 0.58, 0.63]) {
+    for (const crownFraction of [0.45, 0.5, 0.53]) {
+      it(`China upload: face ratio ${ratio}, crown fraction ${crownFraction} meets the pixel rules`, () => {
+        const m: Markers = { ...face(0, 1200, crownFraction), faceWidthPx: 1200 * ratio }
+        const spec = CHINA_VISA_UPLOAD
+        const r = measure(m, autoFit(m, spec), spec)
+        // Converted back to pixels of a 354 × 472 photo, as the rules are written.
+        const px = 354 / spec.widthMm
+        expect(r.faceWidthMm! * px).toBeGreaterThanOrEqual(191)
+        expect(r.faceWidthMm! * px).toBeLessThanOrEqual(219)
+        expect(Math.abs(r.faceWidthMm! * px - 205)).toBeLessThan(4)
+        expect(r.topMarginMm * px).toBeGreaterThanOrEqual(10)
+        expect(r.topMarginMm * px).toBeLessThanOrEqual(70)
+        expect(r.eyeFromBottomMm * px).toBeGreaterThan(256)
+      })
+    }
+  }
+
+  it('China paper photo: head, top margin, chin space and face width all in range', () => {
+    for (const ratio of [0.54, 0.63]) {
+      const m: Markers = { ...face(0, 1200, 0.5), faceWidthPx: 1200 * ratio }
+      const r = measure(m, autoFit(m, CHINA_VISA), CHINA_VISA)
+      expect(r.headHeightMm).toBeGreaterThanOrEqual(28)
+      expect(r.headHeightMm).toBeLessThanOrEqual(33)
+      expect(r.topMarginMm).toBeGreaterThanOrEqual(3)
+      expect(r.topMarginMm).toBeLessThanOrEqual(5)
+      expect(r.chinFromBottomMm).toBeGreaterThanOrEqual(7)
+      expect(r.faceWidthMm).toBeGreaterThanOrEqual(15)
+      expect(r.faceWidthMm).toBeLessThanOrEqual(22)
+    }
+  })
+
+  it('formats a range with only a minimum', () => {
+    expect(formatRange({ min: 23.86, max: Infinity }, 'mm')).toBe('at least 23.86 mm')
   })
 })
