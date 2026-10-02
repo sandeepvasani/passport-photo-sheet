@@ -1,6 +1,6 @@
 import { FaceLandmarker, FilesetResolver, ImageSegmenter, type Matrix } from '@mediapipe/tasks-vision'
 import { midpoint, type Markers, type Point } from './geometry'
-import { createCanvas, ctx2d, downscale, type LoadedImage } from './image'
+import { createCanvas, ctx2d, downscale, releaseCanvas, type LoadedImage } from './image'
 import { clampRect, makeMaskLayer, type MaskLayer } from './mask'
 
 export type { MaskLayer } from './mask'
@@ -127,6 +127,7 @@ function segmentRegion(
   ictx.drawImage(image.canvas, rect.x, rect.y, rect.w, rect.h, 0, 0, input.width, input.height)
 
   const result = segmenter.segment(input)
+  releaseCanvas(input)
   const bgIndex = Math.max(0, segmenter.getLabels().indexOf('background'))
   const bgMask = result.confidenceMasks?.[bgIndex]
   if (!bgMask) {
@@ -269,6 +270,7 @@ function analyzeEyewear(segmenter: ImageSegmenter, image: LoadedImage, lms: Poin
   const rimEdge = Math.min(rowPeak(eL.x - 30, eL.x + 30, eL.y + 18, eL.y + 50), rowPeak(eR.x - 30, eR.x + 30, eR.y + 18, eR.y + 50))
 
   const result = segmenter.segment(crop)
+  releaseCanvas(crop)
   const othersIndex = segmenter.getLabels().indexOf('others')
   let accessoryShare = 0
   const mask = othersIndex >= 0 ? result.confidenceMasks?.[othersIndex] : undefined
@@ -378,6 +380,7 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
 
   const small = downscale(image.canvas, 1280)
   let faces = detectFaces(face, small.canvas, { x: 0, y: 0 }, small.scale)
+  releaseCanvas(small.canvas)
   if (faces.length === 0) {
     // Small faces in large photos can be missed; retry on the person's upper body.
     const body = personBounds(full)
@@ -392,6 +395,8 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
       ctx2d(crop).drawImage(image.canvas, roi.x, roi.y, roi.w, roi.h, 0, 0, roi.w, roi.h)
       const cropSmall = downscale(crop, 1280)
       faces = detectFaces(face, cropSmall.canvas, { x: roi.x, y: roi.y }, cropSmall.scale)
+      releaseCanvas(crop)
+      releaseCanvas(cropSmall.canvas)
     }
   }
 

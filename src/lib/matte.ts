@@ -7,7 +7,7 @@
 import type { InferenceSession } from 'onnxruntime-web'
 import type { PhotoSpec } from '../config/photoSpecs'
 import { frameToSource, type Crop } from './geometry'
-import { createCanvas, ctx2d, type LoadedImage } from './image'
+import { createCanvas, ctx2d, releaseCanvas, type LoadedImage } from './image'
 import { clampRect, makeMaskLayer, type MaskLayer } from './mask'
 
 const MODEL_FILE = 'modnet_fp16.onnx'
@@ -98,6 +98,7 @@ async function runMatte(image: LoadedImage, crop: Crop, spec: PhotoSpec): Promis
   ictx.imageSmoothingQuality = 'high'
   ictx.drawImage(image.canvas, rect.x, rect.y, rect.w, rect.h, 0, 0, w, h)
   const px = ictx.getImageData(0, 0, w, h).data
+  releaseCanvas(input)
 
   // NCHW float32, normalised to [-1, 1] (mean 0.5, std 0.5).
   const n = w * h

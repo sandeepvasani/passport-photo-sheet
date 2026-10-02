@@ -9,7 +9,7 @@ import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
 import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSizes'
 import { backgroundCheck, eyewearChecks, faceCountCheck, runChecks, type CheckResult } from './lib/checks'
 import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
-import { canvasToJpeg, ctx2d, downloadBlob, loadImageFile, type LoadedImage } from './lib/image'
+import { canvasToJpeg, ctx2d, downloadBlob, loadImageFile, releaseCanvas, releaseImage, type LoadedImage } from './lib/image'
 import { computeLayout, type LayoutMode } from './lib/layout'
 import type { MaskLayer } from './lib/mask'
 import { matteCovers, portraitMatte } from './lib/matte'
@@ -144,6 +144,20 @@ export default function App() {
     [session, markers, deferredCrop, photo, spec, deferredBg, step],
   )
 
+  // Free canvas memory as soon as something is replaced (iOS Safari caps the total).
+  useEffect(
+    () => () => {
+      if (!session) return
+      releaseImage(session.image)
+      for (const layer of session.analysis.masks) releaseCanvas(layer.canvas)
+    },
+    [session],
+  )
+  useEffect(() => () => releaseCanvas(matte?.layer.canvas), [matte])
+  useEffect(() => () => releaseCanvas(photo?.canvas), [photo])
+  useEffect(() => () => releaseCanvas(sheet), [sheet])
+  useEffect(() => () => releaseCanvas(originalPreview), [originalPreview])
+
   const handleFile = async (file: File) => {
     setError(null)
     setBusy('Opening photo…')
@@ -160,6 +174,8 @@ export default function App() {
       const m = analysis.markers
       if (analysis.faceCount === 0 || !m) {
         // Stay here: a photo without a detectable face can never pass the final check.
+        releaseImage(image)
+        for (const layer of analysis.masks) releaseCanvas(layer.canvas)
         setError(NO_FACE_ERROR)
         return
       }

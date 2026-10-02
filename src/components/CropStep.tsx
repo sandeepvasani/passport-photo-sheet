@@ -197,6 +197,8 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [cssW, setCssW] = useState(460)
   const [cursor, setCursor] = useState('grab')
+  /** The browser refused to draw (e.g. iOS Safari's canvas memory cap) or drawing threw. */
+  const [drawError, setDrawError] = useState<string | null>(null)
 
   useEffect(() => {
     const el = wrapRef.current
@@ -224,15 +226,24 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
 
   const draw = () => {
     const canvas = canvasRef.current
-    const ctx = canvas?.getContext('2d')
-    if (!canvas || !ctx) return
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      setDrawError('Your browser ran out of memory for images, so the photo can’t be shown. Close other tabs, reload the page and try again.')
+      return
+    }
     const p = props.current
     const w = Math.round(p.view.cssW * p.dpr)
     const h = Math.round(p.view.cssH * p.dpr)
     // Resizing a canvas reallocates and clears it, so only do it when the size really changes.
     if (canvas.width !== w) canvas.width = w
     if (canvas.height !== h) canvas.height = h
-    drawEditor(ctx, p.image, p.spec, live.current.crop, live.current.markers, p.view, p.dpr, interacting.current)
+    try {
+      drawEditor(ctx, p.image, p.spec, live.current.crop, live.current.markers, p.view, p.dpr, interacting.current)
+    } catch (err) {
+      console.error(err)
+      setDrawError(`The photo couldn’t be drawn (${err instanceof Error ? err.message : String(err)}). Reload the page and try again.`)
+    }
   }
 
   const flush = () => {
@@ -268,6 +279,9 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
   useEffect(
     () => () => {
       cancelAnimationFrame(raf.current)
+      // Clear the handle too, or schedule() would think a frame is still pending and
+      // never draw again (React's dev mode unmounts and remounts effects once on mount).
+      raf.current = 0
       clearTimeout(wheelTimer.current)
     },
     [],
@@ -430,6 +444,11 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
 
   return (
     <div ref={wrapRef} className="editor">
+      {drawError && (
+        <p className="alert alert--error editor__error" role="alert">
+          {drawError}
+        </p>
+      )}
       <canvas
         ref={canvasRef}
         className="editor__canvas"

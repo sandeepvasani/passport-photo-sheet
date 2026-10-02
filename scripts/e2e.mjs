@@ -48,6 +48,15 @@ if (await uploadError.isVisible()) {
   process.exit(0)
 }
 await page.waitForTimeout(300)
+// The editor must actually show the photo (a blank canvas once slipped through as a "white screen").
+const drawn = await page.evaluate(() => {
+  const c = document.querySelector('.editor__canvas')
+  if (!c || c.width === 300) return false
+  const px = c.getContext('2d').getImageData(Math.floor(c.width / 2), Math.floor(c.height / 2), 1, 1).data
+  return px[3] === 255
+})
+console.log(`editor drawn: ${drawn ? 'yes' : 'NO'}`)
+if (!drawn) errors.push('Crop editor did not draw the photo')
 await page.screenshot({ path: join(out, '2-crop.png'), fullPage: true })
 const lists = page.locator('.checks')
 if ((await lists.count()) > 1) console.log('early issues:', await lists.first().innerText())

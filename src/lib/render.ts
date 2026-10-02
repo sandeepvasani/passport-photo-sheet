@@ -1,6 +1,6 @@
 import type { PhotoSpec } from '../config/photoSpecs'
 import { sourceToFrame, sourceToOutputTransform, type Crop, type Point } from './geometry'
-import { createCanvas, ctx2d, type LoadedImage } from './image'
+import { createCanvas, ctx2d, releaseCanvas, type LoadedImage } from './image'
 import { guidedFilter, hexToRgb, keepConnected, levels, replaceBackground, toPlanes } from './matting'
 import type { MaskLayer } from './mask'
 
@@ -64,6 +64,7 @@ export function renderPhoto(
     mctx.drawImage(layer.canvas, layer.rect.x, layer.rect.y, layer.rect.w, layer.rect.h)
   }
   const md = mctx.getImageData(0, 0, W, H).data
+  releaseCanvas(maskCanvas)
   const coarse = new Float32Array(W * H)
   for (let i = 0; i < coarse.length; i++) coarse[i] = md[i * 4] / 255
 

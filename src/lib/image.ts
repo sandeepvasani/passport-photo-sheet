@@ -15,8 +15,12 @@ export interface LoadedImage {
   preview: ImageBitmap | HTMLCanvasElement
 }
 
-/** Largest working-image side; keeps us under mobile Safari's canvas limits. */
-const MAX_WORKING_SIDE = 4096
+/**
+ * Largest working-image side. Phones get a smaller copy: iOS Safari caps the
+ * total memory all canvases may use, and a 12 MP photo plus its copies gets close.
+ * 3072 px still leaves the head several hundred pixels tall in a normal photo.
+ */
+const MAX_WORKING_SIDE = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 3072 : 4096
 /** Largest side of the editor preview: enough for a sharp ~1200 px editor canvas. */
 const PREVIEW_SIDE = 2048
 
@@ -27,9 +31,30 @@ export function createCanvas(w: number, h: number): HTMLCanvasElement {
   return c
 }
 
+/**
+ * Frees a canvas's pixel memory now rather than whenever it's garbage collected.
+ * Matters on iOS Safari, where exceeding the total canvas memory cap makes new
+ * canvases silently refuse to draw.
+ */
+export function releaseCanvas(canvas: HTMLCanvasElement | null | undefined): void {
+  if (!canvas) return
+  canvas.width = 0
+  canvas.height = 0
+}
+
+export function releaseImage(image: LoadedImage): void {
+  releaseCanvas(image.canvas)
+  if (image.preview instanceof HTMLCanvasElement) releaseCanvas(image.preview)
+  else image.preview.close()
+}
+
 export function ctx2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) throw new Error('Canvas 2D is not available in this browser.')
+  if (!ctx) {
+    throw new Error(
+      'Your browser ran out of memory for images. Close other tabs, reload the page and try again. A smaller photo can also help.',
+    )
+  }
   return ctx
 }
 
@@ -92,7 +117,9 @@ async function makePreview(canvas: HTMLCanvasElement): Promise<ImageBitmap | HTM
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(canvas, 0, 0, small.width, small.height)
   try {
-    return await createImageBitmap(small)
+    const bitmap = await createImageBitmap(small)
+    releaseCanvas(small)
+    return bitmap
   } catch {
     return small
   }
