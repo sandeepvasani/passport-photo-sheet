@@ -131,9 +131,9 @@ export const US_PASSPORT: PhotoSpec = {
 
 export const INDIA_2X2: PhotoSpec = {
   id: 'in-2x2',
-  label: 'India Passport / Visa / OCI',
+  label: 'India Visa / OCI',
   sizeLabel: '2 × 2 in',
-  countries: 'Indian passport, visa and OCI applications through VFS Global (USA)',
+  countries: 'Indian visa and OCI card applications',
   displayUnit: 'in',
   widthMm: 50.8,
   heightMm: 50.8,
@@ -170,16 +170,16 @@ export const INDIA_2X2: PhotoSpec = {
   sourceUrl: 'https://visa.vfsglobal.com/one-pager/india/united-states-of-america/passport-services/pdf/photo-specifiation.pdf',
   related: {
     specId: 'in-online',
-    prompt: 'Applying for a passport, PCC, passport surrender or GEP? The Passport Seva portal also needs an uploaded 630 × 810 px photo.',
+    prompt: 'Applying for a passport, PCC, passport surrender or GEP instead? Those now need a 630 × 810 px photo uploaded on the Passport Seva portal.',
   },
 }
 
 export const INDIA_ONLINE: PhotoSpec = {
   ...INDIA_2X2,
   id: 'in-online',
-  label: 'India Online Upload',
+  label: 'India Passport (Passport Seva)',
   sizeLabel: '35 × 45 mm',
-  countries: 'Photo upload on the Passport Seva portal (GPSP 2.0) for passport, PCC, surrender and GEP applications: 630 × 810 px',
+  countries: 'Passport, PCC, surrender and GEP: upload on the Passport Seva portal',
   displayUnit: 'mm',
   widthMm: 35,
   heightMm: 45,
@@ -208,12 +208,12 @@ export const INDIA_ONLINE: PhotoSpec = {
   ],
   notes: [
     'Upload the downloaded file as it is. It’s already 630 × 810 pixels and under 250 KB; opening and re-saving it in another app can change both.',
-    'This type is for the upload. If you also need printed photos, use the India Passport / Visa / OCI type (2 × 2 in).',
+    'OCI card and visa applications still use 2 × 2 in photos: use the India Visa / OCI type for those.',
     INDIA_2X2.notes[1],
   ],
   sourceUrl: 'https://mportal.passportindia.gov.in/pdf/Guidelines_for_ICAO_Compliant_Photographs_for_Passport_Applications.pdf',
   digital: { widthPx: 630, heightPx: 810, maxBytes: 250_000 },
-  related: { specId: 'in-2x2', prompt: 'Need printed 2 × 2 in photos too?' },
+  related: { specId: 'in-2x2', prompt: 'Applying for an OCI card or Indian visa instead? Those still use 2 × 2 in photos.' },
 }
 
 export const INTL_35X45: PhotoSpec = {

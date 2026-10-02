@@ -30,7 +30,7 @@ page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && errors.push(m.text()))
 
 await page.goto(url)
-const specLabel = { 'us-2x2': 'US Passport / Visa', 'in-2x2': 'India Passport / Visa / OCI', 'in-online': 'India Online Upload', 'intl-35x45': '35 × 45 mm Passport', 'ca-50x70': 'Canada Passport' }[specId]
+const specLabel = { 'us-2x2': 'US Passport / Visa', 'in-2x2': 'India Visa / OCI', 'in-online': 'India Passport \\(Passport Seva\\)', 'intl-35x45': '35 × 45 mm Passport', 'ca-50x70': 'Canada Passport' }[specId]
 await page.getByRole('radio', { name: new RegExp(specLabel.replace(/[/×]/g, '.')) }).click()
 await page.screenshot({ path: join(out, '1-upload.png') })
 
