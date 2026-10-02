@@ -2,7 +2,7 @@ import { formatLength, formatRange, type PhotoSpec } from '../config/photoSpecs'
 import { eyeLineAngle, measure, sourceToFrame, uncoveredFraction, type Crop, type Markers, type Point } from './geometry'
 import { ctx2d, type LoadedImage } from './image'
 import type { BackgroundSettings, RenderedPhoto } from './render'
-import type { DetectedFace, EyewearAnalysis, FaceAnalysis } from './vision'
+import type { DetectedFace, EyewearAnalysis, FaceAnalysis, LightingAnalysis } from './vision'
 
 export type CheckStatus = 'pass' | 'warn' | 'fail'
 
@@ -206,21 +206,6 @@ function facePixels(photo: RenderedPhoto, data: Uint8ClampedArray, pts: Point[])
   return out
 }
 
-function patchLuminance(photo: RenderedPhoto, data: Uint8ClampedArray, c: Point, radius: number): number | null {
-  let sum = 0
-  let n = 0
-  for (let y = Math.round(c.y - radius); y <= c.y + radius; y++) {
-    for (let x = Math.round(c.x - radius); x <= c.x + radius; x++) {
-      if (x < 0 || y < 0 || x >= photo.width || y >= photo.height) continue
-      if ((x - c.x) ** 2 + (y - c.y) ** 2 > radius * radius) continue
-      const i = y * photo.width + x
-      sum += lum(data[i * 4], data[i * 4 + 1], data[i * 4 + 2])
-      n++
-    }
-  }
-  return n > 10 ? sum / n : null
-}
-
 /** Variance of the Laplacian over a region — a standard focus/blur measure. */
 function sharpness(photo: RenderedPhoto, data: Uint8ClampedArray, x0: number, y0: number, x1: number, y1: number): number {
   const w = photo.width
@@ -344,6 +329,104 @@ export function eyewearChecks(spec: PhotoSpec, eyewear: EyewearAnalysis | null):
     detail: tinted ? 'Your lenses look tinted or dark. Wear clear glasses, or take them off.' : 'Lenses look clear',
   })
   return out
+}
+
+/** Brightness difference between the two sides of the face that counts as a shadow. */
+const SIDE_LIMIT = 0.22
+/** The same for one level of the face on its own (say, half the forehead), which varies more. */
+const BAND_SIDE_LIMIT = 0.3
+/** Forehead brightness relative to the cheeks below which it's shaded (it's normally brighter). */
+const FOREHEAD_LIMIT = 0.85
+/** Brightness around the eyes, and below the mouth, relative to the cheeks: lower means light from above. */
+const OVERHEAD_LIMIT = 0.7
+
+const SIDE_BANDS = [
+  ['forehead', 'forehead'],
+  ['cheeks', 'cheek'],
+  ['jaw', 'jaw'],
+] as const
+
+const known = (v: (number | null)[]) => v.filter((x): x is number => x !== null)
+const listing = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`)
+
+/**
+ * Looks for shadows on the face from skin brightness measured at three levels
+ * (forehead, cheeks, jaw) on each side, around the eyes and below the mouth. Left
+ * and right are as seen in the photo. Null when too little skin could be measured.
+ */
+export function lightingCheck(lighting: LightingAnalysis | null): CheckResult | null {
+  if (!lighting) return null
+  const where: string[] = []
+  const advice = new Set<string>()
+  let sided = false
+  let measured = false
+
+  // One whole side darker: light from the side.
+  let left = 0
+  let right = 0
+  for (const [band] of SIDE_BANDS) {
+    const { left: l, right: r } = lighting[band]
+    if (l !== null && r !== null) {
+      left += l
+      right += r
+    }
+  }
+  if (left > 0 && right > 0) {
+    measured = true
+    if (Math.abs(left - right) / Math.max(left, right) > SIDE_LIMIT) {
+      where.push(`on the ${left < right ? 'left' : 'right'} side of your face (as you look at the photo)`)
+      advice.add('Face the light straight on, or brighten the darker side with a lamp or a white sheet held just out of shot.')
+      sided = true
+    }
+  }
+  // Otherwise one level on its own, like hair or a hat shading half the forehead.
+  if (!sided) {
+    for (const [band, noun] of SIDE_BANDS) {
+      const { left: l, right: r } = lighting[band]
+      if (l === null || r === null) continue
+      if (Math.abs(l - r) / Math.max(l, r, 1) > BAND_SIDE_LIMIT) {
+        where.push(`on the ${l < r ? 'left' : 'right'} side of your ${noun} (as you look at the photo)`)
+        advice.add('Move hair or anything else that could cast it away from your face, and face the light straight on.')
+        sided = true
+      }
+    }
+  }
+
+  const cheeks = known(Object.values(lighting.cheeks))
+  const forehead = known(Object.values(lighting.forehead))
+  if (cheeks.length && forehead.length) {
+    measured = true
+    if (mean(forehead) / mean(cheeks) < FOREHEAD_LIMIT) {
+      where.push('on your forehead')
+      advice.add('A hat brim, hair or a light directly overhead often causes this. Take off any hat and light your face from the front.')
+    }
+  }
+
+  let chinShadow = false
+  const eyes = known([lighting.eyes.left, lighting.eyes.right])
+  const cheekSides = known([lighting.cheeks.left, lighting.cheeks.right])
+  if (eyes.length === 2 && cheekSides.length === 2 && mean(eyes) / mean(cheekSides) < OVERHEAD_LIMIT) {
+    where.push('around your eyes')
+    advice.add('The light seems to come from above. Use light in front of you at face height, such as facing a window.')
+  }
+  const { centre: jaw } = lighting.jaw
+  const { centre: cheek } = lighting.cheeks
+  if (jaw !== null && cheek !== null && jaw / cheek < OVERHEAD_LIMIT) {
+    where.push('below your mouth')
+    advice.add('The light seems to come from above. Use light in front of you at face height, such as facing a window.')
+    chinShadow = true
+  }
+
+  if (!measured) return null
+  if (!where.length) {
+    return { id: 'shadows', label: 'Even lighting on face', status: 'pass', detail: 'No strong shadows on the forehead, around the eyes, on the cheeks or on the chin' }
+  }
+  const notes = [
+    `Shadow found ${listing(where)}.`,
+    ...advice,
+    ...(chinShadow ? ['A beard can look like this too. If that’s the cause, ignore this.'] : []),
+  ]
+  return { id: 'shadows', label: 'Even lighting on face', status: 'warn', detail: notes.join(' ') }
 }
 
 /** Whether any part of a face (grown a little to cover hair and ears) falls inside the passport frame. */
@@ -495,18 +578,8 @@ export function runChecks(input: CheckInput): CheckResult[] {
         detail: exposureOk ? 'Exposure looks good' : bright >= 0.05 ? 'Parts of the face are overexposed (washed out).' : 'The face is too dark — add more light.',
       })
 
-      const faceW = Math.hypot(lms[454].x - lms[234].x, lms[454].y - lms[234].y)
-      const l1 = patchLuminance(photo, data, lms[50], faceW * 0.08)
-      const l2 = patchLuminance(photo, data, lms[280], faceW * 0.08)
-      if (l1 !== null && l2 !== null) {
-        const diff = Math.abs(l1 - l2) / Math.max(l1, l2, 1)
-        results.push({
-          id: 'shadows',
-          label: 'Even lighting on face',
-          status: diff <= 0.22 ? 'pass' : 'warn',
-          detail: diff <= 0.22 ? 'No strong shadows detected' : 'One side of the face is noticeably darker. Face a window or use even, diffuse light.',
-        })
-      }
+      const lighting = lightingCheck(analysis.lighting)
+      if (lighting) results.push(lighting)
 
       const [mr, mg, mb] = face.rgb
       const tinted = mb > mr * 0.85 || mg > mr * 0.95
@@ -553,6 +626,7 @@ export function runChecks(input: CheckInput): CheckResult[] {
       })
 
       // Focus measured over the eyes-to-mouth band, at 300 DPI scale.
+      const faceW = Math.hypot(lms[454].x - lms[234].x, lms[454].y - lms[234].y)
       const eyeY = Math.min(lms[468].y, lms[473].y)
       const mouthY = lms[13].y
       const sharp = sharpness(

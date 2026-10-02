@@ -24,7 +24,17 @@ export interface FaceAnalysis {
   crownAtImageEdge: boolean
   /** Glasses, reflections and tint around the eyes; null when no face was found. */
   eyewear: EyewearAnalysis | null
+  /** Skin brightness across the face, for spotting shadows; null when no face was found. */
+  lighting: LightingAnalysis | null
 }
+
+export type LightBand = 'forehead' | 'eyes' | 'cheeks' | 'jaw'
+export type LightSide = 'left' | 'centre' | 'right'
+/**
+ * Median skin brightness (0–255) for each face region, or null where too little
+ * bare skin is visible (hair, beard, glasses). Left and right are as seen in the photo.
+ */
+export type LightingAnalysis = Record<LightBand, Record<LightSide, number | null>>
 
 export interface EyewearAnalysis {
   /** Glasses are probably being worn. */
@@ -128,6 +138,17 @@ function segmentRegion(
   rect: MaskLayer['rect'],
   maxSide: number,
 ): MaskLayer {
+  return segmentWithSkin(segmenter, image, rect, maxSide, false).person
+}
+
+/** Person mask for `rect`, plus (optionally) the segmenter's face-skin class as a second layer. */
+function segmentWithSkin(
+  segmenter: ImageSegmenter,
+  image: LoadedImage,
+  rect: MaskLayer['rect'],
+  maxSide: number,
+  withSkin: boolean,
+): { person: MaskLayer; skin: MaskLayer | null } {
   const s = Math.min(1, maxSide / Math.max(rect.w, rect.h))
   const input = createCanvas(rect.w * s, rect.h * s)
   const ictx = ctx2d(input)
@@ -136,8 +157,8 @@ function segmentRegion(
 
   const result = segmenter.segment(input)
   releaseCanvas(input)
-  const bgIndex = Math.max(0, segmenter.getLabels().indexOf('background'))
-  const bgMask = result.confidenceMasks?.[bgIndex]
+  const labels = segmenter.getLabels()
+  const bgMask = result.confidenceMasks?.[Math.max(0, labels.indexOf('background'))]
   if (!bgMask) {
     result.close()
     throw new Error('Segmentation returned no mask')
@@ -147,8 +168,11 @@ function segmentRegion(
   const bg = bgMask.getAsFloat32Array()
   const data = new Float32Array(w * h)
   for (let i = 0; i < data.length; i++) data[i] = 1 - bg[i]
+  const skinIndex = labels.indexOf('face-skin')
+  const skinMask = withSkin && skinIndex >= 0 ? result.confidenceMasks?.[skinIndex] : undefined
+  const skin = skinMask ? makeMaskLayer(skinMask.getAsFloat32Array().slice(), w, h, rect, 'segmentation') : null
   result.close()
-  return makeMaskLayer(data, w, h, rect, 'segmentation')
+  return { person: makeMaskLayer(data, w, h, rect, 'segmentation'), skin }
 }
 
 /** Bilinear sample of a mask at a working-image point; null if outside the mask. */
@@ -347,6 +371,150 @@ function analyzeEyewear(segmenter: ImageSegmenter, image: LoadedImage, lms: Poin
   }
 }
 
+// Face-mesh outlines used to find bare skin.
+const FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109]
+const EYE_LEFT = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
+const EYE_RIGHT = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
+const BROW_LEFT = [70, 63, 105, 66, 107, 55, 65, 52, 53, 46]
+const BROW_RIGHT = [300, 293, 334, 296, 336, 285, 295, 282, 283, 276]
+const LIPS = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185]
+const BROWS = [...BROW_LEFT, ...BROW_RIGHT]
+
+/**
+ * Measures how evenly the face is lit. Works on a levelled crop with the pupils
+ * 100 px apart, splits the face into forehead / eye area / cheeks / jaw bands,
+ * each left / centre / right, and takes the median brightness of the bare skin
+ * in each (eyes, brows, lips, nostrils, hair, beard and glasses excluded).
+ */
+function measureLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | null): LightingAnalysis {
+  try {
+    return analyzeLighting(image, lms, skin)
+  } finally {
+    releaseCanvas(skin?.canvas)
+  }
+}
+
+function analyzeLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | null): LightingAnalysis {
+  const a = lms[LM.irisA]
+  const b = lms[LM.irisB]
+  const iod = Math.hypot(b.x - a.x, b.y - a.y) || 1
+  const s = 100 / iod
+  const angle = Math.atan2(b.y - a.y, b.x - a.x)
+  const mid = midpoint(a, b)
+  const W = 360
+  const H = 420
+  const eyeY = 170
+  const align = (ctx: CanvasRenderingContext2D) => {
+    ctx.translate(W / 2, eyeY)
+    ctx.scale(s, s)
+    ctx.rotate(-angle)
+    ctx.translate(-mid.x, -mid.y)
+  }
+  const cos = Math.cos(-angle)
+  const sin = Math.sin(-angle)
+  const toCrop = (p: Point) => {
+    const dx = (p.x - mid.x) * s
+    const dy = (p.y - mid.y) * s
+    return { x: W / 2 + dx * cos - dy * sin, y: eyeY + dx * sin + dy * cos }
+  }
+
+  const photo = createCanvas(W, H)
+  const pctx = ctx2d(photo)
+  align(pctx)
+  pctx.imageSmoothingQuality = 'high'
+  pctx.drawImage(image.canvas, 0, 0)
+  const px = pctx.getImageData(0, 0, W, H).data
+
+  // Where bare skin can be: inside the face outline, minus features (slightly enlarged).
+  const valid = createCanvas(W, H)
+  const vctx = ctx2d(valid)
+  vctx.fillStyle = '#000'
+  vctx.fillRect(0, 0, W, H)
+  const poly = (idx: number[], grow: number, colour: string) => {
+    const pts = idx.map((i) => toCrop(lms[i]))
+    const cx = pts.reduce((t, p) => t + p.x, 0) / pts.length
+    const cy = pts.reduce((t, p) => t + p.y, 0) / pts.length
+    vctx.fillStyle = colour
+    vctx.beginPath()
+    pts.forEach((p, k) => {
+      const x = cx + (p.x - cx) * grow
+      const y = cy + (p.y - cy) * grow
+      if (k) vctx.lineTo(x, y)
+      else vctx.moveTo(x, y)
+    })
+    vctx.closePath()
+    vctx.fill()
+  }
+  poly(FACE_OVAL, 0.94, '#fff')
+  poly(EYE_LEFT, 1.5, '#000')
+  poly(EYE_RIGHT, 1.5, '#000')
+  poly(BROW_LEFT, 1.25, '#000')
+  poly(BROW_RIGHT, 1.25, '#000')
+  poly(LIPS, 1.15, '#000')
+  vctx.fillStyle = '#000'
+  for (const [i, r] of [[2, 14], [98, 10], [327, 10]] as const) {
+    const c = toCrop(lms[i])
+    vctx.beginPath()
+    vctx.arc(c.x, c.y, r, 0, Math.PI * 2)
+    vctx.fill()
+  }
+  const vd = vctx.getImageData(0, 0, W, H).data
+
+  // Face-skin class from the segmenter (drops hair, beard and glasses frames).
+  let sd: Uint8ClampedArray | null = null
+  if (skin) {
+    const sk = createCanvas(W, H)
+    const sctx = ctx2d(sk)
+    sctx.fillStyle = '#000'
+    sctx.fillRect(0, 0, W, H)
+    align(sctx)
+    sctx.drawImage(skin.canvas, skin.rect.x, skin.rect.y, skin.rect.w, skin.rect.h)
+    sd = sctx.getImageData(0, 0, W, H).data
+    releaseCanvas(sk)
+  }
+  releaseCanvas(photo)
+  releaseCanvas(valid)
+
+  const top = toCrop(lms[LM.forehead]).y
+  const browTop = Math.min(...BROWS.map((i) => toCrop(lms[i]).y))
+  const underEye = Math.max(toCrop(lms[145]).y, toCrop(lms[374]).y) + 12
+  const mouth = (toCrop(lms[61]).y + toCrop(lms[291]).y) / 2
+  const chin = toCrop(lms[LM.chin]).y
+  const midX = toCrop(lms[LM.browCentre]).x
+  const bands: [LightBand, number, number][] = [
+    ['forehead', top, browTop],
+    ['eyes', browTop, underEye],
+    ['cheeks', underEye, mouth],
+    ['jaw', mouth, chin],
+  ]
+  const buckets: Record<string, number[]> = {}
+  for (let y = 0; y < H; y++) {
+    const band = bands.find(([, y0, y1]) => y >= y0 && y < y1)
+    if (!band) continue
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4
+      if (vd[i] < 128 || (sd && sd[i] < 128)) continue
+      const side: LightSide = x < midX - 30 ? 'left' : x > midX + 30 ? 'right' : 'centre'
+      const key = `${band[0]}:${side}`
+      ;(buckets[key] ??= []).push(0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2])
+    }
+  }
+  const median = (v: number[] | undefined) => {
+    if (!v || v.length < 120) return null
+    v.sort((p, q) => p - q)
+    return v[v.length >> 1]
+  }
+  const out = {} as LightingAnalysis
+  for (const [band] of bands) {
+    out[band] = {
+      left: median(buckets[`${band}:left`]),
+      centre: median(buckets[`${band}:centre`]),
+      right: median(buckets[`${band}:right`]),
+    }
+  }
+  return out
+}
+
 /** Yaw/pitch in degrees from the face transformation matrix (column-major 4×4). */
 function poseFromMatrix(m: Matrix): { yaw: number; pitch: number } {
   const d = m.data
@@ -420,6 +588,7 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
       masks: [full],
       crownAtImageEdge: false,
       eyewear: null,
+      lighting: null,
     }
   }
 
@@ -453,7 +622,8 @@ function analyzeSubject(
     image.width,
     image.height,
   )
-  const masks = [full, segmentRegion(segmenter, image, roi, 768)]
+  const head = segmentWithSkin(segmenter, image, roi, 768, true)
+  const masks = [full, head.person]
   const { crown, atEdge } = findCrown(masks, lms, image)
 
   const a = lms[LM.irisA]
@@ -474,5 +644,6 @@ function analyzeSubject(
     masks,
     crownAtImageEdge: atEdge,
     eyewear: analyzeEyewear(segmenter, image, lms),
+    lighting: measureLighting(image, lms, head.skin),
   }
 }
