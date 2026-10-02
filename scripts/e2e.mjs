@@ -92,8 +92,11 @@ await page.waitForTimeout(800)
 console.log('checks:\n' + (await page.locator('.checks').first().innerText()))
 const sheetButton = page.getByRole('button', { name: /print sheet/ })
 console.log('download enabled before confirming:', await sheetButton.isEnabled())
+console.log((await page.locator('.download-todo').innerText()).trim())
+await page.screenshot({ path: join(out, '5a-check-unconfirmed.png'), fullPage: true })
 for (const box of await page.locator('.attestations input[type=checkbox]').all()) await box.check()
 await page.screenshot({ path: join(out, '5-check.png'), fullPage: true })
+console.log(`to-do after confirming: ${(await page.locator('.download-todo').count()) ? 'still shown' : 'gone'}`)
 console.log('download enabled after confirming:', await sheetButton.isEnabled())
 
 if (await sheetButton.isEnabled()) {

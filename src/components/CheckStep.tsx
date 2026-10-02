@@ -15,6 +15,9 @@ interface Props {
   onAttest: (id: string, v: boolean) => void
   ackWarnings: boolean
   onAckWarnings: (v: boolean) => void
+  /** Ids of the failed checks the user chose to download anyway (as `failureKey`). */
+  ackFailures: string | null
+  onAckFailures: (key: string | null) => void
   onFix: (r: CheckResult) => void
   onDownloadSheet: () => void
   onDownloadPhoto: () => void
@@ -25,17 +28,21 @@ export function CheckStep(props: Props) {
   const { spec, print, results, attest, ackWarnings } = props
   const fails = results.filter((r) => r.status === 'fail')
   const warns = results.filter((r) => r.status === 'warn')
-  const attested = spec.attestations.every((a) => attest[a.id])
-  const ready = fails.length === 0 && attested && (warns.length === 0 || ackWarnings)
+  const unconfirmed = spec.attestations.filter((a) => !attest[a.id]).length
+  // Ticking applies to the failures shown: a new one (after going back to edit) needs a new tick.
+  const failureKey = fails.map((r) => r.id).join()
+  const failuresAccepted = fails.length === 0 || props.ackFailures === failureKey
+  const warningsAccepted = warns.length === 0 || ackWarnings
+  const ready = unconfirmed === 0 && failuresAccepted && warningsAccepted
+  const failedNames = fails.map((r) => `“${r.label}”`).join(', ')
 
-  const blocker =
-    fails.length > 0
-      ? `Fix ${fails.length} failing check${fails.length === 1 ? '' : 's'} first.`
-      : !attested
-        ? 'Confirm every item in the checklist.'
-        : warns.length > 0 && !ackWarnings
-          ? 'Review the warnings and tick the box to continue.'
-          : null
+  const todo = [
+    !failuresAccepted &&
+      `Fix the failed check${fails.length === 1 ? '' : 's'} (${failedNames}), or tick the red box above to download anyway.`,
+    unconfirmed > 0 &&
+      `Tick ${unconfirmed === spec.attestations.length ? `all ${unconfirmed} items` : unconfirmed === 1 ? 'the last item' : `the ${unconfirmed} remaining items`} under “Please confirm”.`,
+    !warningsAccepted && 'Review the warnings and tick the orange box above.',
+  ].filter((t): t is string => !!t)
 
   return (
     <div className="step-grid">
@@ -97,16 +104,36 @@ export function CheckStep(props: Props) {
               I’ve reviewed the warnings above and want to continue
             </label>
           )}
+          {fails.length > 0 && (
+            <label className="checkbox checkbox--fail">
+              <input
+                type="checkbox"
+                checked={props.ackFailures === failureKey}
+                onChange={(e) => props.onAckFailures(e.target.checked ? failureKey : null)}
+              />
+              This photo fails {fails.length === 1 ? 'a requirement' : `${fails.length} requirements`} ({failedNames}). I understand it’s
+              likely to be rejected and want to download it anyway.
+            </label>
+          )}
         </div>
 
         <div className="downloads">
+          {todo.length > 0 && (
+            <div className="alert alert--warn download-todo">
+              <strong>To download:</strong>
+              <ul>
+                {todo.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <button type="button" className="btn btn--primary btn--large" disabled={!ready} onClick={props.onDownloadSheet}>
             Download {print.label} print sheet
           </button>
           <button type="button" className="btn" disabled={!ready} onClick={props.onDownloadPhoto}>
             Download single digital photo ({props.photo.width}×{props.photo.height} px)
           </button>
-          {blocker && <p className="muted small">{blocker}</p>}
         </div>
 
         {spec.notes.length > 0 && (

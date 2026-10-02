@@ -525,6 +525,11 @@ a {
   font-weight: 600;
 }
 
+.checkbox--fail {
+  color: var(--fail);
+  font-weight: 600;
+}
+
 .segmented {
   display: flex;
   background: #eef1f6;
@@ -798,9 +803,13 @@ figcaption {
   margin-top: 1rem;
 }
 
-.downloads .muted {
+.download-todo {
   margin: 0;
-  text-align: center;
+}
+
+.download-todo ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
 }
 
 .app__footer {

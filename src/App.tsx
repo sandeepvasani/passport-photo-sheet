@@ -80,6 +80,7 @@ export default function App() {
   const [cutGuides, setCutGuides] = useState(true)
   const [attest, setAttest] = useState<Record<string, boolean>>({})
   const [ackWarnings, setAckWarnings] = useState(false)
+  const [ackFailures, setAckFailures] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<UploadError | null>(null)
   /** MODNet matte for background replacement, and the crop it was computed for. */
@@ -191,6 +192,7 @@ export default function App() {
       setMatteFailedFor(null)
       setAttest({})
       setAckWarnings(false)
+      setAckFailures(null)
       setStep('crop')
     } catch (e) {
       console.error(e)
@@ -209,6 +211,7 @@ export default function App() {
     setBg((b) => ({ ...b, color: next.backgrounds[0].color }))
     setAttest({})
     setAckWarnings(false)
+    setAckFailures(null)
   }
 
   /** Re-centre everything on another detected person. */
@@ -223,6 +226,7 @@ export default function App() {
       setMarkers(analysis.markers)
       setCrop(autoFit(analysis.markers, spec, session.image))
       setAckWarnings(false)
+      setAckFailures(null)
     } finally {
       setSubjectBusy(false)
     }
@@ -352,6 +356,8 @@ export default function App() {
             onAttest={(id, v) => setAttest((a) => ({ ...a, [id]: v }))}
             ackWarnings={ackWarnings}
             onAckWarnings={setAckWarnings}
+            ackFailures={ackFailures}
+            onAckFailures={setAckFailures}
             onFix={onFix}
             onDownloadSheet={() => download('sheet')}
             onDownloadPhoto={() => download('photo')}
