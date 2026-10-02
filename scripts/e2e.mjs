@@ -2,6 +2,7 @@
 // and the downloaded files to e2e-output/. Usage:
 //   npm run build && npx vite preview --port 4173 &
 //   node scripts/e2e.mjs test-images/portrait.jpg [spec-id] [print-id]
+import { statSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { chromium, webkit } from 'playwright'
@@ -29,7 +30,7 @@ page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && errors.push(m.text()))
 
 await page.goto(url)
-const specLabel = { 'us-2x2': 'US Passport / Visa', 'in-2x2': 'India Passport / Visa / OCI', 'intl-35x45': '35 × 45 mm Passport', 'ca-50x70': 'Canada Passport' }[specId]
+const specLabel = { 'us-2x2': 'US Passport / Visa', 'in-2x2': 'India Passport / Visa / OCI', 'in-online': 'India Online Upload', 'intl-35x45': '35 × 45 mm Passport', 'ca-50x70': 'Canada Passport' }[specId]
 await page.getByRole('radio', { name: new RegExp(specLabel.replace(/[/×]/g, '.')) }).click()
 await page.screenshot({ path: join(out, '1-upload.png') })
 
@@ -102,12 +103,14 @@ console.log('download enabled after confirming:', await sheetButton.isEnabled())
 if (await sheetButton.isEnabled()) {
   for (const [button, file] of [
     [sheetButton, 'sheet.jpg'],
-    [page.getByRole('button', { name: /single digital photo/ }), 'photo.jpg'],
+    [page.getByRole('button', { name: /single digital photo|online upload/ }), 'photo.jpg'],
   ]) {
     const [download] = await Promise.all([page.waitForEvent('download'), button.click()])
     await download.saveAs(join(out, file))
-    console.log('saved', download.suggestedFilename())
+    console.log('saved', download.suggestedFilename(), `${statSync(join(out, file)).size} bytes`)
   }
+  const status = page.locator('.downloads [role=status]')
+  if (await status.count()) console.log('status:', await status.innerText())
 }
 
 console.log(errors.length ? `ERRORS:\n${errors.join('\n')}` : 'no page errors')

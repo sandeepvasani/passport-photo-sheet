@@ -172,6 +172,21 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
         ? `${Math.round(dpi)} pixels per inch`
         : `Only ${Math.round(dpi)} pixels per inch (300 recommended) — the print may look soft. Use a higher-resolution photo or move closer to the camera.`,
   })
+  if (spec.digital) {
+    // Pixels of the original that land inside the frame, against what the upload needs.
+    const { widthPx, heightPx } = spec.digital
+    const w = Math.round(crop.pxPerMm * spec.widthMm)
+    const h = Math.round(crop.pxPerMm * spec.heightMm)
+    const enough = w >= widthPx * 0.9
+    out.push({
+      id: 'upload-resolution',
+      label: 'Upload resolution',
+      status: enough ? 'pass' : 'warn',
+      detail: enough
+        ? `Enough detail for the ${widthPx} × ${heightPx} px upload`
+        : `Only about ${w} × ${h} pixels of your photo are inside the frame, so the ${widthPx} × ${heightPx} px upload will be enlarged and may look soft. Use a higher-resolution photo or move closer to the camera.`,
+    })
+  }
   return out
 }
 

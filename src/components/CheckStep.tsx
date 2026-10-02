@@ -1,4 +1,4 @@
-import type { PhotoSpec } from '../config/photoSpecs'
+import { PHOTO_SPECS, type PhotoSpec } from '../config/photoSpecs'
 import { PRINT_DPI, type PrintSize } from '../config/printSizes'
 import type { CheckResult } from '../lib/checks'
 import type { RenderedPhoto } from '../lib/render'
@@ -21,6 +21,9 @@ interface Props {
   onFix: (r: CheckResult) => void
   onDownloadSheet: () => void
   onDownloadPhoto: () => void
+  /** Outcome of the last online-upload download. */
+  saved: { text: string; error?: boolean } | null
+  onSwitchSpec: (id: string) => void
   onBack: () => void
 }
 
@@ -35,6 +38,8 @@ export function CheckStep(props: Props) {
   const warningsAccepted = warns.length === 0 || ackWarnings
   const ready = unconfirmed === 0 && failuresAccepted && warningsAccepted
   const failedNames = fails.map((r) => `“${r.label}”`).join(', ')
+  const digital = spec.digital
+  const related = PHOTO_SPECS.find((s) => s.id === spec.related?.specId)
 
   const todo = [
     !failuresAccepted &&
@@ -128,13 +133,44 @@ export function CheckStep(props: Props) {
               </ul>
             </div>
           )}
-          <button type="button" className="btn btn--primary btn--large" disabled={!ready} onClick={props.onDownloadSheet}>
-            Download {print.label} print sheet
-          </button>
-          <button type="button" className="btn" disabled={!ready} onClick={props.onDownloadPhoto}>
-            Download single digital photo ({props.photo.width}×{props.photo.height} px)
-          </button>
+          {digital ? (
+            <>
+              <button type="button" className="btn btn--primary btn--large" disabled={!ready} onClick={props.onDownloadPhoto}>
+                Download for online upload
+                <span className="btn__sub">
+                  {digital.widthPx} × {digital.heightPx} px JPEG, under {Math.round(digital.maxBytes / 1000)} KB
+                </span>
+              </button>
+              <button type="button" className="btn" disabled={!ready} onClick={props.onDownloadSheet}>
+                Download {print.label} print sheet
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn btn--primary btn--large" disabled={!ready} onClick={props.onDownloadSheet}>
+                Download {print.label} print sheet
+              </button>
+              <button type="button" className="btn" disabled={!ready} onClick={props.onDownloadPhoto}>
+                Download single digital photo ({props.photo.width}×{props.photo.height} px)
+              </button>
+            </>
+          )}
+          {props.saved && (
+            <p className={`small ${props.saved.error ? 'alert alert--error' : 'muted'}`} role="status">
+              {props.saved.text}
+            </p>
+          )}
         </div>
+
+        {related && (
+          <div className="related small">
+            <p>{spec.related!.prompt}</p>
+            <button type="button" className="btn btn--small" onClick={() => props.onSwitchSpec(related.id)}>
+              Switch to {related.label} →
+            </button>
+            <p className="muted">Your photo stays loaded; you’ll check the new crop first.</p>
+          </div>
+        )}
 
         {spec.notes.length > 0 && (
           <div className="notes">

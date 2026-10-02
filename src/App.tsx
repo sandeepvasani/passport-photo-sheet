@@ -9,7 +9,7 @@ import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
 import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSizes'
 import { backgroundCheck, eyewearChecks, faceCountCheck, runChecks, type CheckResult } from './lib/checks'
 import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
-import { canvasToJpeg, ctx2d, downloadBlob, loadImageFile, releaseCanvas, releaseImage, type LoadedImage } from './lib/image'
+import { canvasToJpeg, canvasToJpegUnder, ctx2d, downloadBlob, loadImageFile, releaseCanvas, releaseImage, type LoadedImage } from './lib/image'
 import { computeLayout, type LayoutMode } from './lib/layout'
 import type { MaskLayer } from './lib/mask'
 import { matteCovers, portraitMatte } from './lib/matte'
@@ -81,6 +81,8 @@ export default function App() {
   const [attest, setAttest] = useState<Record<string, boolean>>({})
   const [ackWarnings, setAckWarnings] = useState(false)
   const [ackFailures, setAckFailures] = useState<string | null>(null)
+  /** Result of the last online-upload download (file size, or why it failed). */
+  const [saved, setSaved] = useState<{ text: string; error?: boolean } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<UploadError | null>(null)
   /** MODNet matte for background replacement, and the crop it was computed for. */
@@ -193,6 +195,7 @@ export default function App() {
       setAttest({})
       setAckWarnings(false)
       setAckFailures(null)
+      setSaved(null)
       setStep('crop')
     } catch (e) {
       console.error(e)
@@ -212,6 +215,7 @@ export default function App() {
     setAttest({})
     setAckWarnings(false)
     setAckFailures(null)
+    setSaved(null)
   }
 
   /** Re-centre everything on another detected person. */
@@ -238,10 +242,25 @@ export default function App() {
   }
 
   const download = async (kind: 'sheet' | 'photo') => {
-    if (!photo || !sheet) return
-    const blob = await canvasToJpeg(kind === 'sheet' ? sheet : photo.canvas, PRINT_DPI)
-    const name = kind === 'sheet' ? `passport-photo-${spec.id}-${print.id}-print.jpg` : `passport-photo-${spec.id}-digital.jpg`
-    downloadBlob(blob, name)
+    if (!photo || !sheet || !session || !deferredCrop) return
+    const digital = spec.digital
+    if (kind === 'sheet' || !digital) {
+      const blob = await canvasToJpeg(kind === 'sheet' ? sheet : photo.canvas, PRINT_DPI)
+      downloadBlob(blob, kind === 'sheet' ? `passport-photo-${spec.id}-${print.id}-print.jpg` : `passport-photo-${spec.id}-digital.jpg`)
+      return
+    }
+    // Rendered straight from the original at the exact pixel size, not resized from the print version.
+    const dpi = (digital.widthPx / spec.widthMm) * 25.4
+    const out = renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, dpi, subject)
+    try {
+      const blob = await canvasToJpegUnder(out.canvas, Math.round(dpi), digital.maxBytes)
+      downloadBlob(blob, `passport-photo-${spec.id}-${out.width}x${out.height}.jpg`)
+      setSaved({ text: `Saved: ${out.width} × ${out.height} px JPEG, ${Math.ceil(blob.size / 1000)} KB.` })
+    } catch (e) {
+      setSaved({ text: e instanceof Error ? e.message : 'Couldn’t save the photo.', error: true })
+    } finally {
+      releaseCanvas(out.canvas)
+    }
   }
 
   const onFix = (r: CheckResult) => setStep(FIX_STEP[r.id] ?? 'upload')
@@ -361,6 +380,11 @@ export default function App() {
             onFix={onFix}
             onDownloadSheet={() => download('sheet')}
             onDownloadPhoto={() => download('photo')}
+            saved={saved}
+            onSwitchSpec={(id) => {
+              changeSpec(id)
+              goto('crop')
+            }}
             onBack={() => goto('layout')}
           />
         )}

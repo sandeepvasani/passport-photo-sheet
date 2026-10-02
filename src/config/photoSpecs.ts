@@ -25,6 +25,15 @@ export interface Attestation {
   label: string
 }
 
+/** File rules for uploading the photo to an online application form. */
+export interface DigitalUpload {
+  /** Exact size in pixels (same shape as the photo). */
+  widthPx: number
+  heightPx: number
+  /** Largest file accepted, in bytes. */
+  maxBytes: number
+}
+
 export interface PhotoSpec {
   id: string
   label: string
@@ -55,7 +64,11 @@ export interface PhotoSpec {
   defaultPrintSizeId: string
   attestations: Attestation[]
   notes: string[]
-  sourceUrl: string
+  sourceUrl?: string
+  /** When set, the digital download is made to these rules instead of at print resolution. */
+  digital?: DigitalUpload
+  /** Another photo type people applying with this one often need too. */
+  related?: { specId: string; prompt: string }
 }
 
 const WHITE: BackgroundSwatch = { id: 'white', label: 'White', color: '#ffffff' }
@@ -153,6 +166,30 @@ export const INDIA_2X2: PhotoSpec = {
     'Rules are relaxed for children under 10 (head size and eye position) and babies under one (eyes needn’t be open). The child must be alone in the photo, with the mouth closed.',
   ],
   sourceUrl: 'https://visa.vfsglobal.com/one-pager/india/united-states-of-america/passport-services/pdf/photo-specifiation.pdf',
+  related: { specId: 'in-online', prompt: 'Need a digital photo for an Indian online application form too (630 × 810 px)?' },
+}
+
+export const INDIA_ONLINE: PhotoSpec = {
+  ...INDIA_2X2,
+  id: 'in-online',
+  label: 'India Online Upload',
+  sizeLabel: '35 × 45 mm',
+  countries: 'Digital photo for Indian online application forms: 630 × 810 px JPEG, under 250 KB',
+  displayUnit: 'mm',
+  widthMm: 35,
+  heightMm: 45,
+  // The upload rules give only the size and file limits, so this uses the ICAO head size for 35 × 45 mm photos.
+  headHeightMm: { min: 32, max: 36, target: 34 },
+  eyeFromBottomMm: undefined,
+  eyeLineRequired: false,
+  topMarginMm: { min: 2, max: 6, target: 4 },
+  notes: [
+    'Upload the downloaded file as it is. It’s already 630 × 810 pixels and under 250 KB; opening and re-saving it in another app can change both.',
+    INDIA_2X2.notes[1],
+  ],
+  sourceUrl: undefined,
+  digital: { widthPx: 630, heightPx: 810, maxBytes: 250_000 },
+  related: { specId: 'in-2x2', prompt: 'Need printed 2 × 2 in photos too?' },
 }
 
 export const INTL_35X45: PhotoSpec = {
@@ -226,7 +263,7 @@ export const CANADA_50X70: PhotoSpec = {
     'https://www.canada.ca/en/immigration-refugees-citizenship/services/canadian-passports/photos.html',
 }
 
-export const PHOTO_SPECS: PhotoSpec[] = [US_PASSPORT, INDIA_2X2, INTL_35X45, CANADA_50X70]
+export const PHOTO_SPECS: PhotoSpec[] = [US_PASSPORT, INDIA_2X2, INDIA_ONLINE, INTL_35X45, CANADA_50X70]
 
 export function rangeTarget(r: Range): number {
   return r.target ?? (r.min + r.max) / 2

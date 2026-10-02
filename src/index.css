@@ -807,6 +807,24 @@ figcaption {
   margin: 0;
 }
 
+.related {
+  display: grid;
+  gap: 0.35rem;
+  justify-items: start;
+  margin-top: 1rem;
+}
+
+.related p {
+  margin: 0;
+}
+
+.btn__sub {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
 .download-todo ul {
   margin: 0.3rem 0 0;
   padding-left: 1.1rem;

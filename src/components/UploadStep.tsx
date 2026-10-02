@@ -79,12 +79,14 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
             <dd>{{ forbidden: 'Not allowed', discouraged: 'Avoid (often not allowed)', allowed: 'Allowed: clear lenses, no glare' }[spec.glasses]}</dd>
           </div>
         </dl>
-        <p className="muted small">
-          Official rules:{' '}
-          <a href={spec.sourceUrl} target="_blank" rel="noreferrer">
-            {new URL(spec.sourceUrl).hostname}
-          </a>
-        </p>
+        {spec.sourceUrl && (
+          <p className="muted small">
+            Official rules:{' '}
+            <a href={spec.sourceUrl} target="_blank" rel="noreferrer">
+              {new URL(spec.sourceUrl).hostname}
+            </a>
+          </p>
+        )}
 
         <h2>2. Upload a photo</h2>
         <div

@@ -179,6 +179,34 @@ export async function canvasToJpeg(canvas: HTMLCanvasElement, dpi: number, quali
   return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
 }
 
+/**
+ * Encodes at the highest JPEG quality whose file fits in `maxBytes`. Throws if even
+ * low quality doesn't fit.
+ */
+export async function canvasToJpegUnder(canvas: HTMLCanvasElement, dpi: number, maxBytes: number): Promise<Blob> {
+  let best = await canvasToJpeg(canvas, dpi, 0.95)
+  if (best.size <= maxBytes) return best
+  let lo = 0.3
+  let hi = 0.95
+  let fits: Blob | null = null
+  for (let i = 0; i < 7; i++) {
+    const q = (lo + hi) / 2
+    const blob = await canvasToJpeg(canvas, dpi, q)
+    if (blob.size <= maxBytes) {
+      fits = blob
+      lo = q
+    } else {
+      hi = q
+    }
+  }
+  if (!fits) {
+    best = await canvasToJpeg(canvas, dpi, lo)
+    if (best.size > maxBytes) throw new Error(`Couldn’t make the photo smaller than ${Math.round(maxBytes / 1000)} KB`)
+    fits = best
+  }
+  return fits
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
