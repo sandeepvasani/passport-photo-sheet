@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { BackgroundStep } from './components/BackgroundStep'
 import { CheckStep } from './components/CheckStep'
 import { Stepper, type StepDef } from './components/common'
@@ -84,6 +84,7 @@ export default function App() {
   const [error, setError] = useState<UploadError | null>(null)
   /** MODNet matte for background replacement, and the crop it was computed for. */
   const [matte, setMatte] = useState<{ layer: MaskLayer; crop: Crop } | null>(null)
+  const [subjectBusy, setSubjectBusy] = useState(false)
   /** Crop for which computing the matte failed (so it isn't retried in a loop). */
   const [matteFailedFor, setMatteFailedFor] = useState<Crop | null>(null)
 
@@ -145,14 +146,16 @@ export default function App() {
   )
 
   // Free canvas memory as soon as something is replaced (iOS Safari caps the total).
-  useEffect(
-    () => () => {
-      if (!session) return
-      releaseImage(session.image)
-      for (const layer of session.analysis.masks) releaseCanvas(layer.canvas)
-    },
-    [session],
-  )
+  // Switching subject keeps the same photo and full-image mask, so only free what's gone.
+  const prevSession = useRef<Session | null>(null)
+  useEffect(() => {
+    const prev = prevSession.current
+    prevSession.current = session
+    if (!prev || prev === session) return
+    const kept = new Set<unknown>(session ? [session.image, ...session.analysis.masks] : [])
+    if (!kept.has(prev.image)) releaseImage(prev.image)
+    for (const layer of prev.analysis.masks) if (!kept.has(layer)) releaseCanvas(layer.canvas)
+  }, [session])
   useEffect(() => () => releaseCanvas(matte?.layer.canvas), [matte])
   useEffect(() => () => releaseCanvas(photo?.canvas), [photo])
   useEffect(() => () => releaseCanvas(sheet), [sheet])
@@ -206,6 +209,23 @@ export default function App() {
     setBg((b) => ({ ...b, color: next.backgrounds[0].color }))
     setAttest({})
     setAckWarnings(false)
+  }
+
+  /** Re-centre everything on another detected person. */
+  const chooseSubject = async (index: number) => {
+    if (!session || index === session.analysis.subject) return
+    setSubjectBusy(true)
+    try {
+      const vision = await import('./lib/vision')
+      const analysis = await vision.selectSubject(session.image, session.analysis, index)
+      if (!analysis.markers) return
+      setSession({ image: session.image, analysis })
+      setMarkers(analysis.markers)
+      setCrop(autoFit(analysis.markers, spec, session.image))
+      setAckWarnings(false)
+    } finally {
+      setSubjectBusy(false)
+    }
   }
 
   const onMarkers = (m: Markers, done: boolean) => {
@@ -266,7 +286,13 @@ export default function App() {
             markers={markers}
             crop={crop}
             bg={bg}
-            earlyIssues={[faceCountCheck(session.analysis), ...eyewearChecks(spec, session.analysis.eyewear)].filter((r) => r.status !== 'pass')}
+            earlyIssues={[faceCountCheck(session.analysis, crop, spec), ...eyewearChecks(spec, session.analysis.eyewear)].filter(
+              (r) => r.status !== 'pass',
+            )}
+            faces={session.analysis.faces}
+            subject={session.analysis.subject}
+            subjectBusy={subjectBusy}
+            onSubject={chooseSubject}
             onCrop={setCrop}
             onMarkers={onMarkers}
             autoRefit={autoRefit}

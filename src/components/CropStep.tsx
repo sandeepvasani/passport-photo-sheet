@@ -14,6 +14,7 @@ import {
   type Point,
 } from '../lib/geometry'
 import type { LoadedImage } from '../lib/image'
+import type { DetectedFace } from '../lib/vision'
 import type { BackgroundSettings } from '../lib/render'
 import { CheckList, Slider } from './common'
 
@@ -465,7 +466,57 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
   )
 }
 
+/** Round thumbnail of one detected face, cut from the editor preview. */
+function FaceThumb({ image, face }: { image: LoadedImage; face: DetectedFace }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const canvas = ref.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    const size = 56 * Math.min(2, window.devicePixelRatio || 1)
+    canvas.width = size
+    canvas.height = size
+    const { x, y, w, h } = face.box
+    const side = Math.max(w, h) * 1.5
+    const s = image.preview.width / image.width
+    ctx.drawImage(image.preview, (x + w / 2 - side / 2) * s, (y + h / 2 - side / 2) * s, side * s, side * s, 0, 0, size, size)
+  }, [image, face])
+  return <canvas ref={ref} className="face-thumb__img" aria-hidden />
+}
+
+function SubjectPicker(props: { image: LoadedImage; faces: DetectedFace[]; subject: number; busy: boolean; onSubject: (i: number) => void }) {
+  // Left-to-right order reads naturally; `faces` itself is sorted largest first.
+  const order = props.faces.map((f, i) => ({ f, i })).sort((a, b) => a.f.box.x - b.f.box.x)
+  return (
+    <div className="subject-picker">
+      <h3>Who is this photo for?</h3>
+      <p className="muted small">There’s more than one person in this photo. Tap the person the passport photo is for.</p>
+      <div className="subject-picker__faces" role="radiogroup" aria-label="Person">
+        {order.map(({ f, i }, n) => (
+          <button
+            key={i}
+            type="button"
+            role="radio"
+            aria-checked={i === props.subject}
+            aria-label={`Person ${n + 1}`}
+            className={`face-thumb ${i === props.subject ? 'is-selected' : ''}`}
+            disabled={props.busy}
+            onClick={() => props.onSubject(i)}
+          >
+            <FaceThumb image={props.image} face={f} />
+          </button>
+        ))}
+        {props.busy && <span className="spinner spinner--small" aria-label="Switching person" />}
+      </div>
+    </div>
+  )
+}
+
 interface StepProps extends EditorProps {
+  faces: DetectedFace[]
+  subject: number
+  subjectBusy: boolean
+  onSubject: (index: number) => void
   /** Problems spotted at upload (e.g. glasses) worth knowing before cropping. */
   earlyIssues: CheckResult[]
   bg: BackgroundSettings
@@ -496,6 +547,9 @@ export function CropStep(props: StepProps) {
 
       <aside className="panel">
         <h2>Crop &amp; position</h2>
+        {props.faces.length > 1 && (
+          <SubjectPicker image={image} faces={props.faces} subject={props.subject} busy={props.subjectBusy} onSubject={props.onSubject} />
+        )}
         {props.earlyIssues.length > 0 && <CheckList results={props.earlyIssues} />}
         <Slider
           label="Head size"

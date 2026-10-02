@@ -7,6 +7,10 @@ export type { MaskLayer } from './mask'
 
 export interface FaceAnalysis {
   faceCount: number
+  /** Every face found, largest first. */
+  faces: DetectedFace[]
+  /** Index into `faces` of the person the photo is for. */
+  subject: number
   /** 478 face-mesh landmarks of the main face, in working-image pixels. */
   landmarks: Point[]
   /** Detected reference points, or null when no face was found. */
@@ -87,11 +91,14 @@ export function loadModels(): Promise<Models> {
   return modelsPromise
 }
 
-interface DetectedFace {
+export interface DetectedFace {
+  /** 478 face-mesh landmarks, in working-image pixels. */
   landmarks: Point[]
   blendshapes: Record<string, number>
   matrix?: Matrix
   area: number
+  /** Bounding box of the landmarks (forehead to chin, cheek to cheek), working-image pixels. */
+  box: { x: number; y: number; w: number; h: number }
 }
 
 function detectFaces(face: FaceLandmarker, src: HTMLCanvasElement, offset: Point, scale: number): DetectedFace[] {
@@ -110,6 +117,7 @@ function detectFaces(face: FaceLandmarker, src: HTMLCanvasElement, offset: Point
       blendshapes,
       matrix: result.facialTransformationMatrixes[i],
       area: (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)),
+      box: { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) },
     }
   })
 }
@@ -403,6 +411,8 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
   if (faces.length === 0) {
     return {
       faceCount: 0,
+      faces: [],
+      subject: 0,
       landmarks: [],
       markers: null,
       blendshapes: {},
@@ -414,7 +424,23 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
   }
 
   faces.sort((a, b) => b.area - a.area)
-  const main = faces[0]
+  return analyzeSubject(segmenter, image, full, faces, 0)
+}
+
+/** Re-runs the per-person analysis for another detected face, reusing the detection results. */
+export async function selectSubject(image: LoadedImage, analysis: FaceAnalysis, subject: number): Promise<FaceAnalysis> {
+  const { segmenter } = await loadModels()
+  return analyzeSubject(segmenter, image, analysis.masks[0], analysis.faces, subject)
+}
+
+function analyzeSubject(
+  segmenter: ImageSegmenter,
+  image: LoadedImage,
+  full: MaskLayer,
+  faces: DetectedFace[],
+  subject: number,
+): FaceAnalysis {
+  const main = faces[subject]
   const lms = main.landmarks
   const forehead = lms[LM.forehead]
   const chin = lms[LM.chin]
@@ -434,6 +460,8 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
   const b = lms[LM.irisB]
   return {
     faceCount: faces.length,
+    faces,
+    subject,
     landmarks: lms,
     markers: {
       crown,

@@ -855,3 +855,55 @@ figcaption {
 .editor__error {
   width: 100%;
 }
+
+.subject-picker {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #f7f8fb;
+}
+
+.subject-picker h3 {
+  margin-top: 0;
+}
+
+.subject-picker p {
+  margin: 0 0 0.6rem;
+}
+
+.subject-picker__faces {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.face-thumb {
+  padding: 0;
+  border: 3px solid transparent;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.face-thumb.is-selected {
+  border-color: var(--primary);
+}
+
+.face-thumb:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.face-thumb:focus-visible {
+  outline: 3px solid #93b4ff;
+  outline-offset: 2px;
+}
+
+.face-thumb__img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: block;
+}

@@ -47,6 +47,12 @@ if (await uploadError.isVisible()) {
   await browser.close()
   process.exit(0)
 }
+if (process.env.SUBJECT) {
+  // SUBJECT=n picks the n-th person from the left when the photo has several.
+  await page.getByRole('radio', { name: `Person ${process.env.SUBJECT}` }).click()
+  await page.waitForFunction(() => !document.querySelector('.subject-picker .spinner'), null, { timeout: 60_000 })
+  console.log(`picked person ${process.env.SUBJECT}`)
+}
 await page.waitForTimeout(300)
 // The editor must actually show the photo (a blank canvas once slipped through as a "white screen").
 const drawn = await page.evaluate(() => {

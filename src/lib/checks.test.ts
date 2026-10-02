@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { CANADA_50X70, INDIA_2X2, INTL_35X45, US_PASSPORT } from '../config/photoSpecs'
-import { eyewearChecks } from './checks'
-import type { EyewearAnalysis } from './vision'
+import { eyewearChecks, faceCountCheck } from './checks'
+import type { Crop } from './geometry'
+import type { DetectedFace, EyewearAnalysis, FaceAnalysis } from './vision'
 
 const none: EyewearAnalysis = { detected: false, accessoryShare: 0, bridgeEdge: 8, rimEdge: 8, glareShare: 0, lensBrightness: 0.85 }
 const clear: EyewearAnalysis = { ...none, detected: true, accessoryShare: 0.1, rimEdge: 70 }
@@ -30,5 +31,25 @@ describe('eyewearChecks', () => {
 
   it('returns nothing when there is no face to analyse', () => {
     expect(eyewearChecks(US_PASSPORT, null)).toEqual([])
+  })
+})
+
+describe('faceCountCheck', () => {
+  const face = (x: number): DetectedFace => ({ landmarks: [], blendshapes: {}, area: 1, box: { x, y: 400, w: 300, h: 360 } })
+  const analysis = (faces: DetectedFace[]): FaceAnalysis =>
+    ({ faceCount: faces.length, faces, subject: 0 }) as unknown as FaceAnalysis
+  // Frame centred on the first face: 50.8 mm at 20 px/mm is ~1016 px wide.
+  const crop: Crop = { cx: 1150, cy: 600, angle: 0, pxPerMm: 20 }
+
+  it('passes with one person', () => {
+    expect(faceCountCheck(analysis([face(1000)]), crop, US_PASSPORT).status).toBe('pass')
+  })
+
+  it('fails when another face is inside the frame', () => {
+    expect(faceCountCheck(analysis([face(1000), face(1450)]), crop, US_PASSPORT).status).toBe('fail')
+  })
+
+  it('only warns when the other person is outside the frame', () => {
+    expect(faceCountCheck(analysis([face(1000), face(3000)]), crop, US_PASSPORT).status).toBe('warn')
   })
 })

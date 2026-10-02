@@ -1,8 +1,8 @@
 import { formatLength, formatRange, type PhotoSpec } from '../config/photoSpecs'
-import { measure, sourceToFrame, uncoveredFraction, type Crop, type Markers, type Point } from './geometry'
+import { eyeLineAngle, measure, sourceToFrame, uncoveredFraction, type Crop, type Markers, type Point } from './geometry'
 import { ctx2d, type LoadedImage } from './image'
 import type { BackgroundSettings, RenderedPhoto } from './render'
-import type { EyewearAnalysis, FaceAnalysis } from './vision'
+import type { DetectedFace, EyewearAnalysis, FaceAnalysis } from './vision'
 
 export type CheckStatus = 'pass' | 'warn' | 'fail'
 
@@ -131,12 +131,21 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
   })
 
   const tilt = Math.abs(m.tiltDeg)
-  out.push({
-    id: 'level',
-    label: 'Head level',
-    status: tilt <= 3 ? 'pass' : tilt <= 6 ? 'warn' : 'fail',
-    detail: `Eyes tilted ${tilt.toFixed(1)}°`,
-  })
+  // How far the head leans in the original photo; straightening it rotates the shoulders instead.
+  const angle = (eyeLineAngle(markers) * 180) / Math.PI
+  const originalTilt = Math.abs(((angle + 90) % 180 + 180) % 180 - 90)
+  out.push(
+    tilt > 3
+      ? { id: 'level', label: 'Head level', status: tilt <= 6 ? 'warn' : 'fail', detail: `Eyes tilted ${tilt.toFixed(1)}°` }
+      : originalTilt > 8
+        ? {
+            id: 'level',
+            label: 'Head level',
+            status: 'warn',
+            detail: `Your head is tilted about ${Math.round(originalTilt)}° in the original photo. It’s been straightened, but your shoulders now lean instead. Passport rules ask for a straight head, so retake it if you can.`,
+          }
+        : { id: 'level', label: 'Head level', status: 'pass', detail: `Eyes tilted ${tilt.toFixed(1)}°` },
+  )
 
   const uncovered = uncoveredFraction(crop, spec, image.width, image.height)
   if (uncovered > 0.002) {
@@ -337,17 +346,48 @@ export function eyewearChecks(spec: PhotoSpec, eyewear: EyewearAnalysis | null):
   return out
 }
 
-/** Exactly one face must be in the photo. */
-export function faceCountCheck(analysis: FaceAnalysis): CheckResult {
-  if (analysis.faceCount === 1) return { id: 'face', label: 'One face detected', status: 'pass', detail: 'Exactly one face found' }
+/** Whether any part of a face (grown a little to cover hair and ears) falls inside the passport frame. */
+export function faceInFrame(face: DetectedFace, crop: Crop, spec: PhotoSpec): boolean {
+  const { x, y, w, h } = face.box
+  const grow = 0.25
+  const n = 7
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const p = sourceToFrame(
+        { x: x - w * grow + (w * (1 + 2 * grow) * i) / (n - 1), y: y - h * grow + (h * (1 + 2 * grow) * j) / (n - 1) },
+        crop,
+        spec,
+      )
+      if (p.x >= 0 && p.y >= 0 && p.x <= spec.widthMm && p.y <= spec.heightMm) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Only the applicant may appear in the finished photo. Other people elsewhere
+ * in the uploaded picture are fine as long as they stay out of the frame.
+ */
+export function faceCountCheck(analysis: FaceAnalysis, crop: Crop, spec: PhotoSpec): CheckResult {
   if (analysis.faceCount === 0) {
     return { id: 'face', label: 'Face detected', status: 'fail', detail: 'No face could be detected. Use a clear, front-facing photo with good lighting.' }
   }
+  if (analysis.faceCount === 1) return { id: 'face', label: 'One person', status: 'pass', detail: 'Exactly one face found' }
+  const others = analysis.faces.filter((_, i) => i !== analysis.subject)
+  if (others.some((f) => faceInFrame(f, crop, spec))) {
+    return {
+      id: 'face',
+      label: 'Only one person in the frame',
+      status: 'fail',
+      detail: 'Another person’s face is inside the photo frame. Zoom in or move the photo so only you are in it, or retake the photo alone.',
+    }
+  }
   return {
     id: 'face',
-    label: 'Only one person',
-    status: 'fail',
-    detail: `${analysis.faceCount} faces found. Only you can be in the photo, so retake it alone (and check there are no faces in pictures behind you).`,
+    label: 'Only one person in the frame',
+    status: 'warn',
+    detail:
+      'There’s someone else in your original photo. Their face is outside the frame, but check that no part of them (hair, shoulder, arm or hand) shows. If it does, retake the photo alone.',
   }
 }
 
@@ -357,7 +397,7 @@ export function runChecks(input: CheckInput): CheckResult[] {
   const results: CheckResult[] = []
   const data = ctx2d(photo.canvas).getImageData(0, 0, photo.width, photo.height).data
 
-  results.push(faceCountCheck(analysis))
+  results.push(faceCountCheck(analysis, crop, spec))
 
   results.push(...geometryChecks(spec, markers, crop, image, bg))
   if (analysis.crownAtImageEdge) {
