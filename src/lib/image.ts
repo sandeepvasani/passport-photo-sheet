@@ -181,19 +181,21 @@ export function formatKb(bytes: number): number {
  */
 export async function canvasToJpegSized(canvas: HTMLCanvasElement, dpi: number, maxBytes: number, minBytes = 0): Promise<Blob> {
   const kb = formatKb
-  let blob = await canvasToJpeg(canvas, dpi, 0.95)
+  // If it's too large, the search below runs between a quality whose file fits under maxBytes (lo) and one whose file doesn't (hi).
+  let lo = 0.3
+  let hi = 0.95
+  let blob = await canvasToJpeg(canvas, dpi, hi)
   if (blob.size < minBytes) {
     // Plain photos can come out too small: spend more bytes on quality.
     for (const q of [0.98, 1]) {
+      lo = hi
+      hi = q
       blob = await canvasToJpeg(canvas, dpi, q)
       if (blob.size >= minBytes) break
     }
     if (blob.size < minBytes) throw new Error(`Couldn’t make the photo as large as ${kb(minBytes)} KB`)
-    if (blob.size <= maxBytes) return blob
   }
   if (blob.size <= maxBytes) return blob
-  let lo = 0.3
-  let hi = 0.95
   let fits: Blob | null = null
   for (let i = 0; i < 7; i++) {
     const q = (lo + hi) / 2

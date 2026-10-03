@@ -1,8 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { CANADA_50X70, INDIA_2X2, INTL_35X45, US_PASSPORT } from '../config/photoSpecs'
-import { expressionCheck, eyewearChecks, faceCountCheck, gazeCheck, gazeOffset, lightingCheck } from './checks'
+import { CANADA_50X70, CHINA_VISA, CHINA_VISA_UPLOAD, INDIA_2X2, INTL_35X45, PHOTO_SPECS, US_PASSPORT, type PhotoSpec } from '../config/photoSpecs'
+import {
+  backgroundCheck,
+  expressionCheck,
+  eyewearChecks,
+  faceCountCheck,
+  gazeCheck,
+  gazeOffset,
+  geometryChecks,
+  lightingCheck,
+  type CheckResult,
+} from './checks'
 import type { ExpressionScores } from './expression'
-import type { Crop, Point } from './geometry'
+import { autoFit, midpoint, transformCropAbout, type Crop, type Markers, type Point } from './geometry'
+import type { LoadedImage } from './image'
+import type { BackgroundSettings, RenderedPhoto } from './render'
 import type { DetectedFace, EyewearAnalysis, FaceAnalysis, LightingAnalysis } from './vision'
 
 const none: EyewearAnalysis = { detected: false, accessoryShare: 0, bridgeEdge: 8, rimEdge: 8, glareShare: 0, lensBrightness: 0.85 }
@@ -228,5 +240,150 @@ describe('gaze', () => {
     expect(gazeCheck(0.218).status).toBe('warn')
     expect(gazeCheck(-0.2).status).toBe('warn')
     expect(gazeCheck(0.109).status).toBe('pass')
+  })
+})
+
+const original: BackgroundSettings = { mode: 'original', color: '#ffffff', feather: 5, expand: 0 }
+
+describe('backgroundCheck', () => {
+  type RGB = [number, number, number]
+  /** A 100 × 100 photo of a person (the middle, below the top fifth) against `left` and `right` halves of background. */
+  function photoOf(left: RGB, right = left, person = (x: number, y: number) => x >= 33 && x < 67 && y >= 20) {
+    const w = 100
+    const h = 100
+    const alpha = new Float32Array(w * h)
+    const data = new Uint8ClampedArray(w * h * 4)
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x
+        alpha[i] = person(x, y) ? 1 : 0
+        data.set([...(person(x, y) ? [150, 110, 90] : x < w / 2 ? left : right), 255], i * 4)
+      }
+    }
+    return { photo: { width: w, height: h, alpha, canvas: null, pxPerMm: 1 } as unknown as RenderedPhoto, data }
+  }
+  const check = (p: ReturnType<typeof photoOf>, spec: PhotoSpec = US_PASSPORT, bg = original) => backgroundCheck(p.photo, p.data, spec, bg)
+
+  it('passes a plain white background', () => {
+    expect(check(photoOf([250, 250, 250])).status).toBe('pass')
+  })
+
+  it('fails a coloured or dark background', () => {
+    expect(check(photoOf([120, 170, 230]))).toMatchObject({ status: 'fail', detail: expect.stringContaining('coloured') })
+    expect(check(photoOf([150, 150, 150]))).toMatchObject({ status: 'fail', detail: expect.stringContaining('too dark') })
+  })
+
+  it('warns about a background a little too dark for the photo type', () => {
+    // Light grey is fine for 35 × 45 mm photos, but a little dark for a US one.
+    expect(check(photoOf([210, 210, 210]), US_PASSPORT)).toMatchObject({ status: 'warn', detail: expect.stringContaining('a little dark') })
+    expect(check(photoOf([210, 210, 210]), INTL_35X45).status).toBe('pass')
+  })
+
+  it('warns when one side is darker, as with a shadow', () => {
+    expect(check(photoOf([250, 250, 250], [225, 225, 225]))).toMatchObject({ status: 'warn', detail: expect.stringContaining('uneven') })
+  })
+
+  it('warns when too little background shows to judge', () => {
+    expect(check(photoOf([250, 250, 250], undefined, () => true))).toMatchObject({ status: 'warn', detail: expect.stringContaining('Too little') })
+  })
+
+  it('passes a replaced background without measuring it', () => {
+    expect(check(photoOf([120, 170, 230]), US_PASSPORT, { ...original, mode: 'replace' }).status).toBe('pass')
+  })
+})
+
+describe('geometryChecks', () => {
+  const image = { width: 3000, height: 4000 } as LoadedImage
+  /** A face in a 3000 × 4000 photo, `headPx` from crown to chin, tilted by `tiltDeg`. */
+  function face(tiltDeg = 0, headPx = 1200): Markers {
+    const t = (tiltDeg * Math.PI) / 180
+    const at = (dx: number, dy: number) => ({ x: 1500 + dx * Math.cos(t) - dy * Math.sin(t), y: 1600 + dx * Math.sin(t) + dy * Math.cos(t) })
+    const k = headPx / 1200
+    return { eyeLeft: at(-150 * k, 0), eyeRight: at(150 * k, 0), crown: at(0, -600 * k), chin: at(0, 600 * k), faceWidthPx: 800 * k }
+  }
+  const run = (spec: PhotoSpec, m: Markers, crop: Crop, img = image, bg = original): Record<string, CheckResult> =>
+    Object.fromEntries(geometryChecks(spec, m, crop, img, bg).map((r) => [r.id, r]))
+  /** The auto-fitted crop moved by (dx, dy) mm of finished photo: the face then sits that far up and left. */
+  const shifted = (spec: PhotoSpec, m: Markers, dx: number, dy: number): Crop => {
+    const c = autoFit(m, spec, image)
+    return { ...c, cx: c.cx + dx * c.pxPerMm, cy: c.cy + dy * c.pxPerMm }
+  }
+
+  it('passes every measurement for an auto-fitted crop', () => {
+    for (const spec of PHOTO_SPECS) {
+      const results = Object.values(run(spec, face(), autoFit(face(), spec, image)))
+      expect(results.filter((r) => r.status !== 'pass').map((r) => `${spec.id} ${r.id}: ${r.detail}`)).toEqual([])
+    }
+  })
+
+  it('fails a head outside the size range, and only warns where the size is a guideline', () => {
+    for (const [spec, status] of [[US_PASSPORT, 'fail'], [CHINA_VISA_UPLOAD, 'warn']] as const) {
+      const fit = autoFit(face(), spec, image)
+      const small = transformCropAbout(fit, midpoint(face().eyeLeft, face().eyeRight), 0.75, 0)
+      expect(run(spec, face(), small).head.status, spec.id).toBe(status)
+    }
+  })
+
+  it('fails the eye line only where it is required', () => {
+    expect(run(INDIA_2X2, face(), shifted(INDIA_2X2, face(), 0, 5)).eyes.status).toBe('fail')
+    expect(run(US_PASSPORT, face(), shifted(US_PASSPORT, face(), 0, 5)).eyes.status).toBe('warn')
+  })
+
+  it('fails the space above the head only where it is required, and notes hair past the top edge', () => {
+    expect(run(CHINA_VISA, face(), shifted(CHINA_VISA, face(), 0, 3)).top.status).toBe('fail')
+    expect(run(US_PASSPORT, face(), shifted(US_PASSPORT, face(), 0, 10)).top).toMatchObject({
+      status: 'warn',
+      detail: expect.stringContaining('past the top edge'),
+    })
+  })
+
+  it('fails a chin cut off at the bottom', () => {
+    expect(run(US_PASSPORT, face(), shifted(US_PASSPORT, face(), 0, -20)).chin.status).toBe('fail')
+  })
+
+  it('warns about a face slightly off centre and fails one well off', () => {
+    expect(run(US_PASSPORT, face(), shifted(US_PASSPORT, face(), 0.05 * 50.8, 0)).center.status).toBe('warn')
+    expect(run(US_PASSPORT, face(), shifted(US_PASSPORT, face(), 0.1 * 50.8, 0)).center.status).toBe('fail')
+  })
+
+  it('warns about a slight tilt, fails a large one, and notes a head straightened from a tilt', () => {
+    const fit = autoFit(face(), US_PASSPORT, image)
+    const eyes = midpoint(face().eyeLeft, face().eyeRight)
+    const tilted = (deg: number) => run(US_PASSPORT, face(), transformCropAbout(fit, eyes, 1, (deg * Math.PI) / 180)).level.status
+    expect(tilted(4)).toBe('warn')
+    expect(tilted(8)).toBe('fail')
+    expect(run(US_PASSPORT, face(10), autoFit(face(10), US_PASSPORT, image)).level).toMatchObject({
+      status: 'warn',
+      detail: expect.stringContaining('straightened'),
+    })
+  })
+
+  it('fails a frame that reaches past the photo, and only warns when the background is replaced', () => {
+    // A photo too narrow for the 2 × 2 in frame around this head.
+    const narrow = { width: 1800, height: 4000 } as LoadedImage
+    const m: Markers = { ...face(), eyeLeft: { x: 750, y: 1600 }, eyeRight: { x: 1050, y: 1600 }, crown: { x: 900, y: 1000 }, chin: { x: 900, y: 2200 } }
+    const crop = autoFit(m, US_PASSPORT)
+    expect(run(US_PASSPORT, m, crop, narrow).coverage.status).toBe('fail')
+    expect(run(US_PASSPORT, m, crop, narrow, { ...original, mode: 'replace' }).coverage).toMatchObject({
+      status: 'warn',
+      detail: expect.stringContaining('filled with the background colour'),
+    })
+  })
+
+  it('judges print resolution, and only the upload size for upload-only photos', () => {
+    const dpi = (headPx: number) => run(US_PASSPORT, face(0, headPx), autoFit(face(0, headPx), US_PASSPORT, image)).resolution.status
+    expect(dpi(1200)).toBe('pass')
+    expect(dpi(300)).toBe('warn')
+    expect(dpi(180)).toBe('fail')
+    const upload = (headPx: number) => run(CHINA_VISA_UPLOAD, face(0, headPx), autoFit(face(0, headPx), CHINA_VISA_UPLOAD, image))
+    expect(upload(1200).resolution).toBeUndefined()
+    expect(upload(1200)['upload-resolution'].status).toBe('pass')
+    expect(upload(300)['upload-resolution'].status).toBe('warn')
+  })
+
+  it('warns about a face width outside the range', () => {
+    const crop = autoFit(face(), CHINA_VISA, image)
+    expect(run(CHINA_VISA, face(), crop)['face-width'].status).toBe('pass')
+    expect(run(CHINA_VISA, { ...face(), faceWidthPx: 400 }, crop)['face-width'].status).toBe('warn')
   })
 })
