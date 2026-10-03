@@ -1,7 +1,7 @@
 // End-to-end scenarios for things a plain walkthrough doesn't reach: failures (a
 // download the browser can't encode, a model that won't load, running out of canvas
-// memory), the Fix buttons, drag and drop, and wording that follows the settings.
-// Exits non-zero if any scenario fails. Usage:
+// memory), the Fix buttons, drag and drop, focus and reduced motion, preview memory,
+// and wording that follows the settings. Exits non-zero if any scenario fails. Usage:
 //   npm run build && npx vite preview --port 4173 &
 //   npm run e2e:scenarios                # all scenarios
 //   npm run e2e:scenarios -- download    # only those whose name contains "download"
@@ -269,6 +269,129 @@ await scenario('Cut-line wording follows the cut-lines setting, and warnings are
   expect(helpOn.includes('cut along the grey lines'), `instructions with cut lines: ${helpOn}`)
   const labelOn = await sheetLabel()
   expect(labelOn === '← should measure exactly 1 inch  ·  India Visa / OCI 2 × 2 in  ·  cut along the grey lines', `sheet label with cut lines: ${labelOn}`)
+})
+
+/** Drags a file over an element and drops it; whether the page stopped the browser opening it, for each event. */
+const dropOutside = (page, selector) =>
+  page.evaluate((selector) => {
+    const dt = new DataTransfer()
+    dt.items.add(new File(['x'], 'photo.jpg', { type: 'image/jpeg' }))
+    const target = document.querySelector(selector)
+    const over = new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt })
+    const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt })
+    target.dispatchEvent(over)
+    target.dispatchEvent(drop)
+    return over.defaultPrevented && drop.defaultPrevented
+  }, selector)
+
+await scenario('A file dropped outside the drop box isn’t opened in place of the app', async (page, expect) => {
+  expect(await dropOutside(page, '.app__header'), 'a drop on the header would open the file (Upload step)')
+  await upload(page, 'portrait.jpg')
+  expect(await dropOutside(page, '.editor__canvas'), 'a drop on the crop editor would open the file')
+  expect(await dropOutside(page, '.app__footer'), 'a drop on the footer would open the file (Crop step)')
+})
+
+await scenario('Upload-only photo types don’t render a print sheet', async (page, expect) => {
+  const sheetDrawn = () => page.evaluate(() => window.__texts.some((t) => t.startsWith('← should')))
+  // The printed China type does, which shows the sheet's label is a fair sign of a sheet.
+  await pickSpec(page, /China Visa(?! Upload)/)
+  await upload(page, 'portrait.jpg')
+  await toCheck(page)
+  expect(await sheetDrawn(), 'no sheet drawn for the printed China photo')
+
+  await page.goto(url)
+  await pickSpec(page, /China Visa Upload/)
+  await upload(page, 'portrait.jpg')
+  await toCheck(page)
+  expect(!(await sheetDrawn()), 'a print sheet was drawn for an upload-only photo')
+  await confirmAll(page)
+  for (const box of ['.checkbox--warn input', '.checkbox--fail input']) if (await page.locator(box).count()) await page.locator(box).check()
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 10_000 }), page.getByRole('button', { name: /online upload/ }).click()])
+  expect(download.suggestedFilename() === 'passport-photo-cn-visa-upload-420x560.jpg', `saved as ${download.suggestedFilename()}`)
+})
+
+await scenario('Each new step moves focus to its heading', async (page, expect) => {
+  const focused = () => page.evaluate(() => (document.activeElement?.tagName === 'H2' ? document.activeElement.textContent : document.activeElement?.tagName))
+  expect((await focused()) === 'BODY', `focus moved on page load (to ${await focused()})`)
+  await upload(page, 'portrait.jpg')
+  expect((await focused()) === 'Crop & position', `after upload, focus is on ${await focused()}`)
+  for (const [button, heading] of [
+    [/Next: Background/, 'Background'],
+    [/Next: Print layout/, 'Print size'],
+    [/Next: Check/, 'Requirement check'],
+    ['← Back', 'Print size'],
+  ]) {
+    await page.getByRole('button', { name: button }).click()
+    await page.waitForTimeout(100)
+    expect((await focused()) === heading, `after "${button}", focus is on ${await focused()}, not "${heading}"`)
+  }
+})
+
+await scenario('Check results name their status for screen readers', async (page, expect) => {
+  await upload(page, 'portrait.jpg')
+  await toCheck(page)
+  const list = page.locator('.checks').first()
+  for (const [status, name] of [['pass', 'Passed'], ['warn', 'Warning'], ['fail', 'Failed']]) {
+    const rows = await list.locator(`li.check--${status}`).count()
+    const icons = await list.getByRole('img', { name, exact: true }).count()
+    expect(rows === icons, `${rows} ${status} checks but ${icons} icons named "${name}"`)
+  }
+})
+
+await scenario('With reduced motion, step changes jump to the top and the spinner slows', async (page, expect) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.getByTestId('file-input').setInputFiles(join(images, 'portrait.jpg'))
+  const spinner = page.locator('.dropzone__busy .spinner')
+  await spinner.waitFor()
+  const duration = await spinner.evaluate((el) => getComputedStyle(el).animationDuration)
+  expect(duration === '2.4s', `spinner turns every ${duration}`)
+  await page.getByRole('heading', { name: 'Crop & position' }).waitFor({ timeout: 120_000 })
+  // From the bottom of the Check step back to Print layout, which is still tall enough to scroll.
+  await toCheck(page)
+  const back = page.getByRole('button', { name: '← Back' })
+  await back.evaluate((el) => el.scrollIntoView({ block: 'end' }))
+  await back.click()
+  const layoutHeight = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
+  expect(layoutHeight > 0, 'the Print layout step is too short to show whether it scrolls')
+  expect((await scrollY(page)) === 0, `not at the top straight after the step change (scrollY ${await scrollY(page)})`)
+})
+
+await scenario('Sheet previews are a smaller copy, freed when the step changes; photo previews are full size', async (page, expect) => {
+  await upload(page, 'portrait.jpg')
+  await page.getByRole('button', { name: /Next: Background/ }).click()
+  await page.getByRole('button', { name: /Next: Print layout/ }).click()
+  await page.getByRole('radio', { name: /8 × 10 in/ }).click()
+  await page.waitForTimeout(500)
+  const preview = await page.locator('.sheet-preview').elementHandle()
+  const size = await preview.evaluate((c) => [c.width, c.height])
+  // The 8 × 10 in sheet is 2400 × 3000 px at 300 DPI.
+  expect(size[0] === 1280 && size[1] === 1600, `sheet preview is ${size.join(' × ')} px, expected 1280 × 1600`)
+  const drawn = await preview.evaluate((c) => c.getContext('2d').getImageData(c.width / 2, c.height / 4, 1, 1).data[3] === 255)
+  expect(drawn, 'sheet preview is blank')
+  // Shown as large as before: the full 72% of the window's height (CSS max-height: 72vh).
+  const box = await preview.boundingBox()
+  expect(box && Math.abs(box.height - 0.72 * 700) < 2, `sheet preview shown ${box?.height} px tall, expected 504`)
+
+  await page.getByRole('button', { name: /Next: Check/ }).click()
+  await page.getByRole('heading', { name: 'Requirement check' }).waitFor()
+  expect((await preview.evaluate((c) => c.width)) === 0, 'the layout step’s preview was not freed')
+  const photo = await page.locator('.final-previews .photo-frame').evaluate((c) => [c.width, c.height])
+  expect(photo[0] === 600 && photo[1] === 600, `photo preview is ${photo.join(' × ')} px, expected the full 600 × 600`)
+})
+
+await scenario('The Upload step lists China’s face width and space above the head', async (page, expect) => {
+  const summary = () => page.locator('.spec-summary').innerText()
+  await pickSpec(page, /China Visa(?! Upload)/)
+  const printed = await summary()
+  expect(/Face width\s+15–22 mm/.test(printed), `China Visa summary: ${printed}`)
+  expect(/Space above head\s+3–5 mm/.test(printed), `China Visa summary: ${printed}`)
+  await pickSpec(page, /China Visa Upload/)
+  const online = await summary()
+  expect(/Head \(chin to top of hair\)\s+28–37 mm \(guideline\)/.test(online), `China Visa Upload summary: ${online}`)
+  expect(online.includes('Face width'), `China Visa Upload summary: ${online}`)
+  await pickSpec(page, /US Passport/)
+  const us = await summary()
+  expect(!us.includes('Face width') && !us.includes('Space above head') && !us.includes('guideline'), `US summary: ${us}`)
 })
 
 await browser.close()
