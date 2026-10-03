@@ -651,7 +651,7 @@ await scenario('A first visit reloads once to turn on multi-threading, and ONNX 
   const before = loads
   await page.reload()
   await page.waitForTimeout(1000)
-  expect(loads === 3, `${loads - 2} loads on the next visit, expected no extra reload`)
+  expect(loads === before + 1, `${loads - before} loads on the next visit, expected 1 (no extra reload)`)
   // The expression model starts ONNX Runtime; it then reports the threads it was set up with.
   const model = page.waitForRequest(/emotion-ferplus/, { timeout: 120_000 })
   await upload(page, 'portrait.jpg')
@@ -797,7 +797,10 @@ await scenario('A pasted photo is used like a chosen one, but not while one is p
       ({ b64, name }) => {
         const dt = new DataTransfer()
         dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], name, { type: 'image/jpeg' }))
-        window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+        // Firefox ignores clipboardData given to the ClipboardEvent constructor, so it's attached directly.
+        const paste = new Event('paste', { bubbles: true, cancelable: true })
+        Object.defineProperty(paste, 'clipboardData', { value: dt })
+        window.dispatchEvent(paste)
       },
       { b64, name: file },
     )
