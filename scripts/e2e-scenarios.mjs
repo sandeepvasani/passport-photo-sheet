@@ -36,6 +36,8 @@ async function scenario(name, fn, pageOptions = {}) {
   })
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(e.message))
+  const consoleErrors = []
+  page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && consoleErrors.push(m.text()))
   // Content-Security-Policy violations count as failures in every scenario.
   page.on('console', (m) => m.text().startsWith('CSP violation') && pageErrors.push(m.text()))
   await page.addInitScript(() =>
@@ -62,6 +64,15 @@ async function scenario(name, fn, pageOptions = {}) {
     fails.push(`threw: ${e.message.split('\n')[0]}`)
   }
   if (pageErrors.length) fails.push(`uncaught page errors: ${pageErrors.join(' | ')}`)
+  if (fails.length) {
+    // What the page showed and logged, to explain a failure (in CI, say).
+    const shown = await page
+      .locator('.alert--error')
+      .allInnerTexts()
+      .catch(() => [])
+    if (shown.length) fails.push(`page showed: ${shown.join(' | ').replace(/\s+/g, ' ')}`)
+    if (consoleErrors.length) fails.push(`console errors: ${consoleErrors.slice(-5).join(' | ')}`)
+  }
   results.push({ name, fails })
   console.log(`${fails.length ? 'FAIL' : 'PASS'}  ${name}${fails.map((f) => `\n      - ${f}`).join('')}`)
   await page.close()
@@ -839,10 +850,6 @@ await scenario('Share offers the same file as the download, where the browser ca
   await plain.close()
 })
 
-await browser.close()
-const failed = results.filter((r) => r.fails.length)
-console.log(`\n${results.length - failed.length} of ${results.length} scenarios passed`)
-process.exit(failed.length || !results.length ? 1 : 0)
 await scenario('MediaPipe’s usage statistics aren’t sent to Google', async (page, expect) => {
   // MediaPipe sends them every minute; the clock is moved on rather than waiting.
   const sent = []
@@ -855,3 +862,7 @@ await scenario('MediaPipe’s usage statistics aren’t sent to Google', async (
   expect(sent.length === 0, `sent: ${sent.join(', ')}`)
 })
 
+await browser.close()
+const failed = results.filter((r) => r.fails.length)
+console.log(`\n${results.length - failed.length} of ${results.length} scenarios passed`)
+process.exit(failed.length || !results.length ? 1 : 0)
