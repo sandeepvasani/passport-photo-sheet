@@ -78,6 +78,20 @@ const LM = {
 
 const BASE = import.meta.env.BASE_URL
 
+/**
+ * MediaPipe sends usage statistics (the task, timings, the operating system) to Google
+ * every minute, and has no setting to stop it. The site makes no third-party requests,
+ * so they're refused here before reaching the network; MediaPipe then stops trying.
+ * (The Content-Security-Policy would block them too, but with an error in the console.)
+ */
+const MEDIAPIPE_LOGGING = 'odml.pa.googleapis.com'
+const pageFetch = self.fetch.bind(self)
+self.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = input instanceof Request ? input.url : String(input)
+  if (new URL(url, location.href).hostname === MEDIAPIPE_LOGGING) return Promise.reject(new TypeError('No third-party requests'))
+  return pageFetch(input, init)
+}
+
 let modelsPromise: Promise<Models> | null = null
 
 export function loadModels(): Promise<Models> {

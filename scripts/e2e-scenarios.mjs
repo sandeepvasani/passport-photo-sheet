@@ -843,3 +843,15 @@ await browser.close()
 const failed = results.filter((r) => r.fails.length)
 console.log(`\n${results.length - failed.length} of ${results.length} scenarios passed`)
 process.exit(failed.length || !results.length ? 1 : 0)
+await scenario('MediaPipe’s usage statistics aren’t sent to Google', async (page, expect) => {
+  // MediaPipe sends them every minute; the clock is moved on rather than waiting.
+  const sent = []
+  page.on('request', (r) => r.url().includes('googleapis.com') && sent.push(r.url()))
+  await page.clock.install()
+  await page.goto(url)
+  await upload(page, 'portrait.jpg')
+  await page.clock.fastForward('02:00')
+  await page.waitForTimeout(1000)
+  expect(sent.length === 0, `sent: ${sent.join(', ')}`)
+})
+
