@@ -21,7 +21,11 @@ const engine = process.env.ENGINE ?? 'chromium'
 const browser =
   engine === 'chromium'
     ? await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
-    : await { firefox, webkit }[engine].launch()
+    : engine === 'firefox'
+      ? // Headless Firefox has no WebGL, which face detection needs: CI runs it headed (HEADED=1) in a
+        // virtual display, and software WebGL is allowed.
+        await firefox.launch({ headless: !process.env.HEADED, firefoxUserPrefs: { 'webgl.force-enabled': true } })
+      : await webkit.launch()
 const results = []
 
 async function scenario(name, fn, pageOptions = {}) {
@@ -37,7 +41,14 @@ async function scenario(name, fn, pageOptions = {}) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(e.message))
   const consoleErrors = []
-  page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && consoleErrors.push(m.text()))
+  // Errors logged as objects are described by their message (the text would be "JSHandle@object").
+  const describe = (m) =>
+    Promise.all(
+      m
+        .args()
+        .map((a) => a.evaluate((v) => (v instanceof Error ? v.message : typeof v === 'string' ? v : JSON.stringify(v))).catch(() => '?')),
+    ).then((parts) => parts.join(' ') || m.text())
+  page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && consoleErrors.push(describe(m)))
   // Content-Security-Policy violations count as failures in every scenario.
   page.on('console', (m) => m.text().startsWith('CSP violation') && pageErrors.push(m.text()))
   await page.addInitScript(() =>
@@ -71,7 +82,7 @@ async function scenario(name, fn, pageOptions = {}) {
       .allInnerTexts()
       .catch(() => [])
     if (shown.length) fails.push(`page showed: ${shown.join(' | ').replace(/\s+/g, ' ')}`)
-    if (consoleErrors.length) fails.push(`console errors: ${consoleErrors.slice(-5).join(' | ')}`)
+    if (consoleErrors.length) fails.push(`console errors: ${(await Promise.all(consoleErrors.slice(-5))).join(' | ')}`)
   }
   results.push({ name, fails })
   console.log(`${fails.length ? 'FAIL' : 'PASS'}  ${name}${fails.map((f) => `\n      - ${f}`).join('')}`)
@@ -850,17 +861,6 @@ await scenario('Share offers the same file as the download, where the browser ca
   await plain.close()
 })
 
-await scenario('MediaPipe’s usage statistics aren’t sent to Google', async (page, expect) => {
-  // MediaPipe sends them every minute; the clock is moved on rather than waiting.
-  const sent = []
-  page.on('request', (r) => r.url().includes('googleapis.com') && sent.push(r.url()))
-  await page.clock.install()
-  await page.goto(url)
-  await upload(page, 'portrait.jpg')
-  await page.clock.fastForward('02:00')
-  await page.waitForTimeout(1000)
-  expect(sent.length === 0, `sent: ${sent.join(', ')}`)
-})
 await scenario('Without WebGL, the page says face detection needs it', async (page, expect) => {
   await page.addInitScript(() => {
     for (const Canvas of [HTMLCanvasElement, OffscreenCanvas]) {
@@ -878,6 +878,17 @@ await scenario('Without WebGL, the page says face detection needs it', async (pa
   expect(text.includes('Face detection needs WebGL'), `the page showed: ${text || 'nothing'}`)
 })
 
+await scenario('MediaPipe’s usage statistics aren’t sent to Google', async (page, expect) => {
+  // MediaPipe sends them every minute; the clock is moved on rather than waiting.
+  const sent = []
+  page.on('request', (r) => r.url().includes('googleapis.com') && sent.push(r.url()))
+  await page.clock.install()
+  await page.goto(url)
+  await upload(page, 'portrait.jpg')
+  await page.clock.fastForward('02:00')
+  await page.waitForTimeout(1000)
+  expect(sent.length === 0, `sent: ${sent.join(', ')}`)
+})
 
 await browser.close()
 const failed = results.filter((r) => r.fails.length)
