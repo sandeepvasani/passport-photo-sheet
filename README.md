@@ -49,7 +49,7 @@ This drives the whole flow in Chrome through Playwright. It saves screenshots an
 
 `dist/` is a plain static site with relative paths, so it works from any host or sub-path. Serve it over HTTPS. The first photo downloads about 30 MB of face-detection model and wasm files. The expression model (19 MB, plus ONNX Runtime) then downloads in the background while the photo is cropped, unless the browser is set to save data; without it, the other checks still run. Replacing a background downloads the 13 MB MODNet model the first time. Browsers cache all of them.
 
-The repo deploys to GitHub Pages automatically: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs the tests, builds (downloading the models), and publishes `dist/` on every push to `main`. To use it in a fork, set **Settings → Pages → Source** to **GitHub Actions**.
+The repo deploys to GitHub Pages automatically: [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) lints, checks formatting, runs the unit tests, builds (downloading the models) and runs the browser scenarios on every pull request and push, and publishes `dist/` on every push to `main`. To use it in a fork, set **Settings → Pages → Source** to **GitHub Actions**.
 
 ## Adding a country
 

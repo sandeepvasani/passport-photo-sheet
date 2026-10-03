@@ -1,17 +1,19 @@
-name: Deploy to GitHub Pages
+name: Check and deploy
 
+# Every pull request and push is linted, tested, built and run through the browser
+# scenarios; pushes to main are then deployed to GitHub Pages.
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# A newer push to the same branch or pull request replaces a run in progress.
 concurrency:
-  group: pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -29,19 +31,35 @@ jobs:
         with:
           path: public/models
           key: models-${{ hashFiles('scripts/setup-assets.mjs') }}
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm test
       - run: npm run build
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+      # The end-to-end scenarios, in the runner's Chrome, against the built site.
+      - name: Browser scenarios
+        run: |
+          npx vite preview --port 4173 --strictPort &
+          for i in $(seq 30); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 1; done
+          npm run e2e:scenarios
+      - if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
   deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/configure-pages@v6
       - id: deployment
         uses: actions/deploy-pages@v5
