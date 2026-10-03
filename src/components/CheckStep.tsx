@@ -32,12 +32,13 @@ export function CheckStep(props: Props) {
   const { spec, print, results, attest, ackWarnings } = props
   const fails = results.filter((r) => r.status === 'fail')
   const warns = results.filter((r) => r.status === 'warn')
+  const pending = results.filter((r) => r.status === 'pending')
   const unconfirmed = spec.attestations.filter((a) => !attest[a.id]).length
   // Ticking applies to the failures shown: a new one (after going back to edit) needs a new tick.
   const failureKey = fails.map((r) => r.id).join()
   const failuresAccepted = fails.length === 0 || props.ackFailures === failureKey
   const warningsAccepted = warns.length === 0 || ackWarnings
-  const ready = unconfirmed === 0 && failuresAccepted && warningsAccepted
+  const ready = unconfirmed === 0 && failuresAccepted && warningsAccepted && pending.length === 0
   const failedNames = fails.map((r) => `“${r.label}”`).join(', ')
   const digital = spec.digital
   const uploadOnly = !!digital?.uploadOnly
@@ -54,6 +55,7 @@ export function CheckStep(props: Props) {
     unconfirmed > 0 &&
       `Tick ${unconfirmed === spec.attestations.length ? `all ${unconfirmed} items` : unconfirmed === 1 ? 'the last item' : `the ${unconfirmed} remaining items`} under “Please confirm”.`,
     !warningsAccepted && 'Review the warnings and tick the orange box above.',
+    pending.length > 0 && 'Wait a moment: the expression check is still running.',
   ].filter((t): t is string => !!t)
 
   return (
@@ -110,7 +112,7 @@ export function CheckStep(props: Props) {
       <aside className="panel">
         <h2>Requirement check</h2>
         <p className="summary">
-          <span className="summary__pill summary__pill--pass">{results.length - fails.length - warns.length} passed</span>
+          <span className="summary__pill summary__pill--pass">{results.length - fails.length - warns.length - pending.length} passed</span>
           {warns.length > 0 && <span className="summary__pill summary__pill--warn">{warns.length} warnings</span>}
           {fails.length > 0 && <span className="summary__pill summary__pill--fail">{fails.length} failed</span>}
         </p>

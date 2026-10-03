@@ -5,7 +5,8 @@ import type { BackgroundSettings, RenderedPhoto } from './render'
 import type { ExpressionScores } from './expression'
 import type { DetectedFace, EyewearAnalysis, FaceAnalysis, LightBand, LightingAnalysis, LightRegion, LightSide } from './vision'
 
-export type CheckStatus = 'pass' | 'warn' | 'fail'
+/** 'pending' while a check waits for a model that's still loading. */
+export type CheckStatus = 'pass' | 'warn' | 'fail' | 'pending'
 
 export interface CheckResult {
   id: string
@@ -22,8 +23,8 @@ export interface CheckInput {
   crop: Crop
   bg: BackgroundSettings
   photo: RenderedPhoto
-  /** FER+ scores, once the expression model has run (null while it loads or if it can't). */
-  expression?: ExpressionScores | null
+  /** FER+ scores; 'pending' while the expression model loads, null if it can't. */
+  expression?: ExpressionScores | 'pending' | null
 }
 
 const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b
@@ -520,7 +521,7 @@ export function expressionCheck(
   spec: PhotoSpec,
   blendshapes: Record<string, number>,
   landmarks: Point[],
-  scores: ExpressionScores | null,
+  scores: ExpressionScores | 'pending' | null,
 ): CheckResult {
   const neutral = spec.expression === 'neutral'
   const label = neutral ? 'Neutral expression, mouth closed' : 'Natural expression, mouth closed'
@@ -532,7 +533,7 @@ export function expressionCheck(
   const issues: string[] = []
   if (neutral && smile >= SMILE_LIMIT) issues.push('You’re smiling. This photo needs a neutral expression, so no smile.')
   if (lipsApart) issues.push(neutral ? 'Your lips look parted. Keep your mouth closed.' : 'Your lips look parted. You can smile, but keep your mouth closed.')
-  if (scores) {
+  if (scores && scores !== 'pending') {
     if (scores.anger > EXPRESSION_LIMIT) issues.push('You look like you’re frowning. Relax your forehead and eyebrows.')
     if (scores.sad > SAD_LIMIT) issues.push('You look sad or upset. Relax your face, with the corners of your mouth level.')
     if (scores.surprise > EXPRESSION_LIMIT || scores.fear > EXPRESSION_LIMIT) {
@@ -545,6 +546,9 @@ export function expressionCheck(
   if ((blendshapes.mouthPucker ?? 0) > PUCKER_LIMIT) issues.push('Your lips look pushed forward (a pout or “duck face”). Relax your mouth.')
 
   if (issues.length) return { id: 'expression', label, status: 'warn', detail: issues.join(' ') }
+  if (scores === 'pending') {
+    return { id: 'expression', label, status: 'pending', detail: 'Checking for frowns, raised eyebrows and other expressions…' }
+  }
   return { id: 'expression', label, status: 'pass', detail: neutral ? 'Expression looks neutral' : 'Expression looks natural, mouth closed' }
 }
 
@@ -579,7 +583,12 @@ export function gazeCheck(offset: number): CheckResult {
  * Problems that need a new photo rather than a different crop (other people in the frame,
  * glasses, expression, gaze), shown on the Crop step so they can be fixed early.
  */
-export function retakeIssues(analysis: FaceAnalysis, crop: Crop, spec: PhotoSpec, expression: ExpressionScores | null): CheckResult[] {
+export function retakeIssues(
+  analysis: FaceAnalysis,
+  crop: Crop,
+  spec: PhotoSpec,
+  expression: ExpressionScores | 'pending' | null,
+): CheckResult[] {
   const bs = analysis.blendshapes
   const eyesOpen = Math.max(bs.eyeBlinkLeft ?? 0, bs.eyeBlinkRight ?? 0) < EYES_OPEN_LIMIT
   return [
@@ -587,7 +596,7 @@ export function retakeIssues(analysis: FaceAnalysis, crop: Crop, spec: PhotoSpec
     ...eyewearChecks(spec, analysis.eyewear),
     expressionCheck(spec, bs, analysis.landmarks, expression),
     ...(eyesOpen ? [gazeCheck(gazeOffset(analysis.landmarks))] : []),
-  ].filter((r) => r.status !== 'pass')
+  ].filter((r) => r.status === 'warn' || r.status === 'fail')
 }
 
 /** Whether any part of a face (grown a little to cover hair and ears) falls inside the passport frame. */
@@ -792,6 +801,6 @@ export function runChecks(input: CheckInput): CheckResult[] {
     }
   }
 
-  const order: Record<CheckStatus, number> = { fail: 0, warn: 1, pass: 2 }
+  const order: Record<CheckStatus, number> = { fail: 0, warn: 1, pending: 2, pass: 3 }
   return results.sort((a, b) => order[a.status] - order[b.status])
 }

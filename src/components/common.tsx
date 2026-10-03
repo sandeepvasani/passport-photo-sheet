@@ -14,7 +14,7 @@ export function CanvasPreview({ canvas, label, className }: { canvas: HTMLCanvas
   return <canvas ref={ref} className={`canvas-preview ${className ?? ''}`} role="img" aria-label={label} />
 }
 
-const ICON: Record<CheckStatus, string> = { pass: '✓', warn: '!', fail: '✕' }
+const ICON: Record<CheckStatus, string> = { pass: '✓', warn: '!', fail: '✕', pending: '…' }
 
 export function StatusIcon({ status }: { status: CheckStatus }) {
   return (
@@ -40,7 +40,7 @@ export function CheckList({
             <strong>{r.label}</strong>
             <span>{r.detail}</span>
           </div>
-          {onFix && r.status !== 'pass' && (
+          {onFix && (r.status === 'warn' || r.status === 'fail') && (
             <button type="button" className="btn btn--small" onClick={() => onFix(r)}>
               Fix
             </button>

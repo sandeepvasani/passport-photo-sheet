@@ -96,6 +96,8 @@ export default function App() {
   const [matteFailedFor, setMatteFailedFor] = useState<Crop | null>(null)
   /** FER+ expression scores and the analysis (photo and person) they were computed for. */
   const [expression, setExpression] = useState<{ analysis: FaceAnalysis; scores: ExpressionScores } | null>(null)
+  /** Analysis for which the expression model couldn't run (so the check stops waiting). */
+  const [expressionFailedFor, setExpressionFailedFor] = useState<FaceAnalysis | null>(null)
 
   const print = PRINT_SIZES.find((p) => p.id === printId) ?? PRINT_SIZES[0]
   const deferredBg = useDeferredValue(bg)
@@ -128,13 +130,17 @@ export default function App() {
     scoreExpression(session.image, session.analysis.landmarks).then(
       (scores) => !cancelled && setExpression({ analysis: session.analysis, scores }),
       // Without it, the expression check still covers smiles, parted lips and pouting.
-      (err) => console.warn('Expression model unavailable', err),
+      (err) => {
+        console.warn('Expression model unavailable', err)
+        if (!cancelled) setExpressionFailedFor(session.analysis)
+      },
     )
     return () => {
       cancelled = true
     }
   }, [session])
-  const expressionScores = session && expression?.analysis === session.analysis ? expression.scores : null
+  const expressionScores =
+    !session || expressionFailedFor === session.analysis ? null : expression?.analysis === session.analysis ? expression.scores : 'pending'
 
   const subject = useMemo(() => (markers ? midpoint(markers.eyeLeft, markers.eyeRight) : undefined), [markers])
   const masks = useMemo(

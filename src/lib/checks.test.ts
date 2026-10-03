@@ -201,8 +201,13 @@ describe('expressionCheck', () => {
     expect(expressionCheck(US_PASSPORT, { ...relaxed, mouthPucker: 0.18 }, closedMouth, FER.neutralFace).status).toBe('pass')
   })
 
-  it('still checks smiles and lips before the expression model has run', () => {
+  it('still checks smiles and lips if the expression model can’t run', () => {
     expect(expressionCheck(INTL_35X45, relaxed, closedMouth, null).status).toBe('pass')
+  })
+
+  it('waits for the expression model, unless something is already wrong', () => {
+    expect(expressionCheck(INTL_35X45, relaxed, closedMouth, 'pending').status).toBe('pending')
+    expect(expressionCheck(INTL_35X45, relaxed, openMouth, 'pending').status).toBe('warn')
   })
 })
 

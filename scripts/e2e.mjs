@@ -94,6 +94,8 @@ if (await toLayout.count()) {
 
 await page.getByRole('button', { name: /Next: Check/ }).click()
 await page.waitForTimeout(800)
+// Checks that wait on a model still downloading (the expression check) settle first.
+await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 180_000 })
 console.log('checks:\n' + (await page.locator('.checks').first().innerText()))
 const sheetButton = page.getByRole('button', { name: /print sheet/ })
 const photoButton = page.getByRole('button', { name: /single digital photo|online upload/ })

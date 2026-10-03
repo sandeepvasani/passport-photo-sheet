@@ -651,6 +651,10 @@ a {
   background: var(--fail);
 }
 
+.status-icon--pending {
+  background: #94a3b8;
+}
+
 .summary {
   display: flex;
   gap: 0.4rem;
