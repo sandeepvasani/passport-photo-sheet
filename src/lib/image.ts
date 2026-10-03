@@ -3,11 +3,6 @@ export interface LoadedImage {
   canvas: HTMLCanvasElement
   width: number
   height: number
-  /** Original pixels per working pixel (≥ 1). Used for the print-resolution check. */
-  scaleToOriginal: number
-  originalWidth: number
-  originalHeight: number
-  name: string
   /**
    * Smaller, GPU-friendly copy for the interactive editor. The working canvas
    * is kept CPU-side for fast pixel reads, which makes it slow to draw every frame.
@@ -96,16 +91,7 @@ export async function loadImageFile(file: File): Promise<LoadedImage> {
   ctx.drawImage(src, 0, 0, canvas.width, canvas.height)
   if ('close' in src) src.close()
   const preview = await makePreview(canvas)
-  return {
-    canvas,
-    width: canvas.width,
-    height: canvas.height,
-    scaleToOriginal: ow / canvas.width,
-    originalWidth: ow,
-    originalHeight: oh,
-    name: file.name,
-    preview,
-  }
+  return { canvas, width: canvas.width, height: canvas.height, preview }
 }
 
 async function makePreview(canvas: HTMLCanvasElement): Promise<ImageBitmap | HTMLCanvasElement> {

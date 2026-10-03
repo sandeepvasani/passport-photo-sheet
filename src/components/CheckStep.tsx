@@ -10,7 +10,8 @@ interface Props {
   print: PrintSize
   results: CheckResult[]
   photo: RenderedPhoto
-  sheet: HTMLCanvasElement
+  /** The print sheet; null for upload-only photo types. */
+  sheet: HTMLCanvasElement | null
   photoCount: number
   /** The sheet has grey cut lines. */
   cutGuides: boolean
@@ -73,7 +74,7 @@ export function CheckStep(props: Props) {
               {spec.label} · {digital ? `${digital.widthPx} × ${digital.heightPx} px` : spec.sizeLabel}
             </figcaption>
           </figure>
-          {!uploadOnly && (
+          {props.sheet && (
             <figure>
               <CanvasPreview canvas={props.sheet} label="Print sheet" className="sheet-thumb" />
               <figcaption>

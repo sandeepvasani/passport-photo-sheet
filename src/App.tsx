@@ -150,9 +150,11 @@ export default function App() {
     [photo, spec, deferredBg],
   )
   const layout = useMemo(() => computeLayout(spec, print, layoutMode), [spec, print, layoutMode])
+  // Upload-only photo types are never printed, so they don't get a sheet.
   const sheet = useMemo(
-    () => (photo && (step === 'layout' || step === 'check') ? renderSheet(photo.canvas, layout, spec, { cutGuides }, PRINT_DPI) : null),
-    [photo, layout, spec, cutGuides, step],
+    () =>
+      photo && !uploadOnly && (step === 'layout' || step === 'check') ? renderSheet(photo.canvas, layout, spec, { cutGuides }, PRINT_DPI) : null,
+    [photo, uploadOnly, layout, spec, cutGuides, step],
   )
   const results = useMemo(
     () =>
@@ -177,6 +179,18 @@ export default function App() {
   useEffect(() => () => releaseCanvas(photo?.canvas), [photo])
   useEffect(() => () => releaseCanvas(sheet), [sheet])
   useEffect(() => () => releaseCanvas(originalPreview), [originalPreview])
+
+  // On a new step, move focus to its heading, so keyboard and screen-reader users start there.
+  const mainRef = useRef<HTMLElement>(null)
+  const focusedStep = useRef(step)
+  useEffect(() => {
+    if (focusedStep.current === step) return
+    focusedStep.current = step
+    const heading = mainRef.current?.querySelector('h2')
+    if (!heading) return
+    heading.tabIndex = -1
+    heading.focus({ preventScroll: true })
+  }, [step])
 
   const handleFile = async (file: File) => {
     setError(null)
@@ -261,11 +275,13 @@ export default function App() {
   }
 
   const download = async (kind: 'sheet' | 'photo') => {
-    if (!photo || !sheet || !session || !deferredCrop) return
+    if (!photo || !session || !deferredCrop) return
     const digital = spec.digital
     try {
       if (kind === 'sheet' || !digital) {
-        const blob = await canvasToJpeg(kind === 'sheet' ? sheet : photo.canvas, PRINT_DPI)
+        const canvas = kind === 'sheet' ? sheet : photo.canvas
+        if (!canvas) return
+        const blob = await canvasToJpeg(canvas, PRINT_DPI)
         downloadBlob(blob, kind === 'sheet' ? `passport-photo-${spec.id}-${print.id}-print.jpg` : `passport-photo-${spec.id}-digital.jpg`)
         // A download that works clears an earlier failure message.
         setSaved((s) => (s?.error ? null : s))
@@ -291,7 +307,8 @@ export default function App() {
 
   const goto = (s: StepId) => {
     setStep(s)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' })
   }
 
   return (
@@ -313,7 +330,7 @@ export default function App() {
 
       <Stepper steps={uploadOnly ? STEPS.filter((s) => s.id !== 'layout') : STEPS} current={step} enabled={(s) => s === 'upload' || !!session} onSelect={goto} />
 
-      <main className="app__main">
+      <main className="app__main" ref={mainRef}>
         {step === 'upload' && (
           <UploadStep
             specs={PHOTO_SPECS}
@@ -388,7 +405,7 @@ export default function App() {
             onNext={() => goto('check')}
           />
         )}
-        {step === 'check' && session && photo && sheet && (
+        {step === 'check' && session && photo && (sheet || uploadOnly) && (
           <CheckStep
             spec={spec}
             print={print}

@@ -56,8 +56,23 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
           </div>
           <div>
             <dt>Head (chin to top of hair)</dt>
-            <dd>{formatRange(spec.headHeightMm, spec.displayUnit)}</dd>
+            <dd>
+              {formatRange(spec.headHeightMm, spec.displayUnit)}
+              {spec.headHeightGuideline && ' (guideline)'}
+            </dd>
           </div>
+          {spec.faceWidthMm && (
+            <div>
+              <dt>Face width</dt>
+              <dd>{formatRange(spec.faceWidthMm, spec.displayUnit)}</dd>
+            </div>
+          )}
+          {spec.topMarginMm && spec.topMarginRequired && (
+            <div>
+              <dt>Space above head</dt>
+              <dd>{formatRange(spec.topMarginMm, spec.displayUnit)}</dd>
+            </div>
+          )}
           {spec.eyeFromBottomMm && (
             <div>
               <dt>Eyes from bottom</dt>

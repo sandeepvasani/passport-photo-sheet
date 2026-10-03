@@ -1,5 +1,13 @@
 import { useEffect, useRef } from 'react'
 import type { CheckResult, CheckStatus } from '../lib/checks'
+import { releaseCanvas } from '../lib/image'
+
+/**
+ * Longest side of an on-screen copy. Photos are smaller and shown as they are; print
+ * sheets (up to about 2400 × 3500 px) are shown much smaller than that, so a smaller copy
+ * looks the same and saves memory, which iOS Safari caps.
+ */
+const MAX_PREVIEW_SIDE = 1600
 
 /** Shows an offscreen canvas on screen, scaled to the container width. */
 export function CanvasPreview({ canvas, label, className }: { canvas: HTMLCanvasElement; label: string; className?: string }) {
@@ -7,18 +15,26 @@ export function CanvasPreview({ canvas, label, className }: { canvas: HTMLCanvas
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    el.width = canvas.width
-    el.height = canvas.height
-    el.getContext('2d')?.drawImage(canvas, 0, 0)
+    const scale = Math.min(1, MAX_PREVIEW_SIDE / Math.max(canvas.width, canvas.height))
+    el.width = Math.round(canvas.width * scale)
+    el.height = Math.round(canvas.height * scale)
+    const ctx = el.getContext('2d')
+    if (ctx) {
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(canvas, 0, 0, el.width, el.height)
+    }
+    // Free the copy as soon as it's replaced or no longer shown.
+    return () => releaseCanvas(el)
   }, [canvas])
   return <canvas ref={ref} className={`canvas-preview ${className ?? ''}`} role="img" aria-label={label} />
 }
 
 const ICON: Record<CheckStatus, string> = { pass: '✓', warn: '!', fail: '✕', pending: '…' }
+const STATUS_NAME: Record<CheckStatus, string> = { pass: 'Passed', warn: 'Warning', fail: 'Failed', pending: 'Checking' }
 
 export function StatusIcon({ status }: { status: CheckStatus }) {
   return (
-    <span className={`status-icon status-icon--${status}`} aria-label={status}>
+    <span className={`status-icon status-icon--${status}`} role="img" aria-label={STATUS_NAME[status]}>
       {ICON[status]}
     </span>
   )

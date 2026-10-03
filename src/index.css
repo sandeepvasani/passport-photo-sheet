@@ -422,6 +422,18 @@ a {
   }
 }
 
+/* Still shows that something is happening, but slowly. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Step headings take focus on a step change (for screen readers); they aren't controls, so no ring. */
+.app__main h2:focus {
+  outline: none;
+}
+
 .tips {
   margin: 0;
   padding-left: 1.1rem;
