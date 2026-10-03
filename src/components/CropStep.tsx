@@ -484,7 +484,14 @@ function FaceThumb({ image, face }: { image: LoadedImage; face: DetectedFace }) 
   return <canvas ref={ref} className="face-thumb__img" aria-hidden />
 }
 
-function SubjectPicker(props: { image: LoadedImage; faces: DetectedFace[]; subject: number; busy: boolean; onSubject: (i: number) => void }) {
+function SubjectPicker(props: {
+  image: LoadedImage
+  faces: DetectedFace[]
+  subject: number
+  busy: boolean
+  error: string | null
+  onSubject: (i: number) => void
+}) {
   // Left-to-right order reads naturally; `faces` itself is sorted largest first.
   const order = props.faces.map((f, i) => ({ f, i })).sort((a, b) => a.f.box.x - b.f.box.x)
   return (
@@ -508,6 +515,11 @@ function SubjectPicker(props: { image: LoadedImage; faces: DetectedFace[]; subje
         ))}
         {props.busy && <span className="spinner spinner--small" aria-label="Switching person" />}
       </div>
+      {props.error && (
+        <p className="alert alert--error small" role="alert">
+          {props.error}
+        </p>
+      )}
     </div>
   )
 }
@@ -516,6 +528,7 @@ interface StepProps extends EditorProps {
   faces: DetectedFace[]
   subject: number
   subjectBusy: boolean
+  subjectError: string | null
   onSubject: (index: number) => void
   /** Problems spotted at upload (e.g. glasses) worth knowing before cropping. */
   earlyIssues: CheckResult[]
@@ -548,7 +561,14 @@ export function CropStep(props: StepProps) {
       <aside className="panel">
         <h2>Crop &amp; position</h2>
         {props.faces.length > 1 && (
-          <SubjectPicker image={image} faces={props.faces} subject={props.subject} busy={props.subjectBusy} onSubject={props.onSubject} />
+          <SubjectPicker
+            image={image}
+            faces={props.faces}
+            subject={props.subject}
+            busy={props.subjectBusy}
+            error={props.subjectError}
+            onSubject={props.onSubject}
+          />
         )}
         {props.earlyIssues.length > 0 && <CheckList results={props.earlyIssues} />}
         <Slider

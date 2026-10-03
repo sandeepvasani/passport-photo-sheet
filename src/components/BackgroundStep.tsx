@@ -11,12 +11,13 @@ interface Props {
   original: HTMLCanvasElement | null
   check: CheckResult | null
   matteStatus: 'idle' | 'loading' | 'error'
+  onRetryMatte: () => void
   onNext: () => void
   nextLabel: string
   onBack: () => void
 }
 
-export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteStatus, onNext, nextLabel, onBack }: Props) {
+export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteStatus, onRetryMatte, onNext, nextLabel, onBack }: Props) {
   const replace = bg.mode === 'replace'
   const originalFails = !replace && check?.status === 'fail'
   return (
@@ -75,9 +76,12 @@ export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteSt
               <strong>Edited photos can be rejected.</strong> {spec.editingPolicy}
             </p>
             {matteStatus === 'error' && (
-              <p className="alert alert--error small">
-                Couldn’t load the hair-detail model, so the edges are less precise. Check your connection and try again.
-              </p>
+              <div className="alert alert--error small row" role="alert">
+                <span>Couldn’t load the hair-detail model, so the edges are less precise. Check your connection and try again.</span>
+                <button type="button" className="btn btn--small" onClick={onRetryMatte}>
+                  Try again
+                </button>
+              </div>
             )}
             <div className="swatches" role="radiogroup" aria-label="Background colour">
               {spec.backgrounds.map((b) => (
@@ -114,7 +118,7 @@ export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteSt
             />
             <p className="muted small">
               Check the hair and shoulders in the result. If bits of the old background remain, tighten the outline. If hair is cut off, expand it.
-              The first time you replace a background, about 27 MB of model files are downloaded.
+              The first time you replace a background, a 13 MB model is downloaded.
             </p>
           </>
         )}

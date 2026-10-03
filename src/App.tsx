@@ -17,8 +17,7 @@ import { matteCovers, portraitMatte } from './lib/matte'
 import { renderCrop, renderPhoto, type BackgroundSettings } from './lib/render'
 import { renderSheet } from './lib/sheet'
 import type { FaceAnalysis } from './lib/vision'
-
-type StepId = 'upload' | 'crop' | 'background' | 'layout' | 'check'
+import { fixStep, type StepId } from './steps'
 
 const STEPS: StepDef<StepId>[] = [
   { id: 'upload', label: 'Upload' },
@@ -27,20 +26,6 @@ const STEPS: StepDef<StepId>[] = [
   { id: 'layout', label: 'Print layout' },
   { id: 'check', label: 'Check & download' },
 ]
-
-/** Which step fixes each check. */
-const FIX_STEP: Record<string, StepId> = {
-  head: 'crop',
-  'face-width': 'crop',
-  eyes: 'crop',
-  top: 'crop',
-  chin: 'crop',
-  center: 'crop',
-  level: 'crop',
-  coverage: 'crop',
-  background: 'background',
-  edited: 'background',
-}
 
 interface Session {
   image: LoadedImage
@@ -85,13 +70,15 @@ export default function App() {
   const [attest, setAttest] = useState<Record<string, boolean>>({})
   const [ackWarnings, setAckWarnings] = useState<string | null>(null)
   const [ackFailures, setAckFailures] = useState<string | null>(null)
-  /** Result of the last online-upload download (file size, or why it failed). */
+  /** Result of the last download: the online-upload file's size, or why a download failed. */
   const [saved, setSaved] = useState<{ text: string; error?: boolean } | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<UploadError | null>(null)
   /** MODNet matte for background replacement, and the crop it was computed for. */
   const [matte, setMatte] = useState<{ layer: MaskLayer; crop: Crop } | null>(null)
   const [subjectBusy, setSubjectBusy] = useState(false)
+  /** Why switching to another detected person failed. */
+  const [subjectError, setSubjectError] = useState<string | null>(null)
   /** Crop for which computing the matte failed (so it isn't retried in a loop). */
   const [matteFailedFor, setMatteFailedFor] = useState<Crop | null>(null)
   /** FER+ expression scores and the analysis (photo and person) they were computed for. */
@@ -219,6 +206,7 @@ export default function App() {
       setBg(defaultBackground(spec))
       setMatte(null)
       setMatteFailedFor(null)
+      setSubjectError(null)
       setAttest({})
       setAckWarnings(null)
       setAckFailures(null)
@@ -249,6 +237,7 @@ export default function App() {
   const chooseSubject = async (index: number) => {
     if (!session || index === session.analysis.subject) return
     setSubjectBusy(true)
+    setSubjectError(null)
     try {
       const vision = await import('./lib/vision')
       const analysis = await vision.selectSubject(session.image, session.analysis, index)
@@ -258,6 +247,9 @@ export default function App() {
       setCrop(autoFit(analysis.markers, spec, session.image))
       setAckWarnings(null)
       setAckFailures(null)
+    } catch (e) {
+      console.error(e)
+      setSubjectError(`Couldn’t switch to that person. ${e instanceof Error ? e.message : 'Please try again.'}`)
     } finally {
       setSubjectBusy(false)
     }
@@ -271,26 +263,31 @@ export default function App() {
   const download = async (kind: 'sheet' | 'photo') => {
     if (!photo || !sheet || !session || !deferredCrop) return
     const digital = spec.digital
-    if (kind === 'sheet' || !digital) {
-      const blob = await canvasToJpeg(kind === 'sheet' ? sheet : photo.canvas, PRINT_DPI)
-      downloadBlob(blob, kind === 'sheet' ? `passport-photo-${spec.id}-${print.id}-print.jpg` : `passport-photo-${spec.id}-digital.jpg`)
-      return
-    }
-    // Rendered straight from the original at the exact pixel size, not resized from the print version.
-    const dpi = (digital.widthPx / spec.widthMm) * 25.4
-    const out = renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, dpi, subject)
     try {
-      const blob = await canvasToJpegSized(out.canvas, Math.round(dpi), digital.maxBytes, digital.minBytes)
-      downloadBlob(blob, `passport-photo-${spec.id}-${out.width}x${out.height}.jpg`)
-      setSaved({ text: `Saved: ${out.width} × ${out.height} px JPEG, ${Math.ceil(blob.size / 1000)} KB.` })
+      if (kind === 'sheet' || !digital) {
+        const blob = await canvasToJpeg(kind === 'sheet' ? sheet : photo.canvas, PRINT_DPI)
+        downloadBlob(blob, kind === 'sheet' ? `passport-photo-${spec.id}-${print.id}-print.jpg` : `passport-photo-${spec.id}-digital.jpg`)
+        // A download that works clears an earlier failure message.
+        setSaved((s) => (s?.error ? null : s))
+        return
+      }
+      // Rendered straight from the original at the exact pixel size, not resized from the print version.
+      const dpi = (digital.widthPx / spec.widthMm) * 25.4
+      const out = renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, dpi, subject)
+      try {
+        const blob = await canvasToJpegSized(out.canvas, Math.round(dpi), digital.maxBytes, digital.minBytes)
+        downloadBlob(blob, `passport-photo-${spec.id}-${out.width}x${out.height}.jpg`)
+        setSaved({ text: `Saved: ${out.width} × ${out.height} px JPEG, ${Math.ceil(blob.size / 1000)} KB.` })
+      } finally {
+        releaseCanvas(out.canvas)
+      }
     } catch (e) {
+      console.error(e)
       setSaved({ text: e instanceof Error ? e.message : 'Couldn’t save the photo.', error: true })
-    } finally {
-      releaseCanvas(out.canvas)
     }
   }
 
-  const onFix = (r: CheckResult) => setStep(FIX_STEP[r.id] ?? 'upload')
+  const onFix = (r: CheckResult) => goto(fixStep(r.id))
 
   const goto = (s: StepId) => {
     setStep(s)
@@ -340,6 +337,7 @@ export default function App() {
             faces={session.analysis.faces}
             subject={session.analysis.subject}
             subjectBusy={subjectBusy}
+            subjectError={subjectError}
             onSubject={chooseSubject}
             onCrop={setCrop}
             onMarkers={onMarkers}
@@ -366,6 +364,7 @@ export default function App() {
             original={originalPreview}
             check={bgResult}
             matteStatus={matteStatus}
+            onRetryMatte={() => setMatteFailedFor(null)}
             onBack={() => goto('crop')}
             onNext={() => goto(uploadOnly ? 'check' : 'layout')}
             nextLabel={uploadOnly ? 'Next: Check & download →' : 'Next: Print layout →'}
@@ -397,6 +396,7 @@ export default function App() {
             photo={photo}
             sheet={sheet}
             photoCount={layout.cells.length}
+            cutGuides={cutGuides}
             attest={attest}
             onAttest={(id, v) => setAttest((a) => ({ ...a, [id]: v }))}
             ackWarnings={ackWarnings}

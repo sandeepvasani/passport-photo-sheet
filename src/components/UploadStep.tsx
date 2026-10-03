@@ -96,13 +96,14 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
           className={`dropzone ${dragOver ? 'is-over' : ''} ${busy ? 'is-busy' : ''}`}
           onDragOver={(e) => {
             e.preventDefault()
-            setDragOver(true)
+            if (!busy) setDragOver(true)
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={(e) => {
+            // Always take the drop (or the browser opens the file itself), but ignore it while a photo is processing.
             e.preventDefault()
             setDragOver(false)
-            pick(e.dataTransfer.files)
+            if (!busy) pick(e.dataTransfer.files)
           }}
         >
           {busy ? (

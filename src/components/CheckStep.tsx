@@ -12,6 +12,8 @@ interface Props {
   photo: RenderedPhoto
   sheet: HTMLCanvasElement
   photoCount: number
+  /** The sheet has grey cut lines. */
+  cutGuides: boolean
   attest: Record<string, boolean>
   onAttest: (id: string, v: boolean) => void
   /** The warnings (as `warningKey`) the user reviewed. */
@@ -23,7 +25,7 @@ interface Props {
   onFix: (r: CheckResult) => void
   onDownloadSheet: () => void
   onDownloadPhoto: () => void
-  /** Outcome of the last online-upload download. */
+  /** Outcome of the last download: the online-upload file's size, or why a download failed. */
   saved: { text: string; error?: boolean } | null
   onSwitchSpec: (id: string) => void
   onBack: () => void
@@ -106,7 +108,10 @@ export function CheckStep(props: Props) {
                 {PRINT_DPI} DPI (the standard print resolution), so every photo prints at exactly {spec.sizeLabel}. Choose the same print size,
                 keep the whole image selected if the order screen offers cropping, and turn off any auto-enhance.
               </li>
-              <li>At home, cut along the grey lines and measure one photo with a ruler: it should be exactly {spec.sizeLabel}.</li>
+              <li>
+                At home, {props.cutGuides ? 'cut along the grey lines' : 'cut the photos apart'} and measure one photo with a ruler: it should be
+                exactly {spec.sizeLabel}.
+              </li>
             </ol>
           </div>
         )}
@@ -116,7 +121,11 @@ export function CheckStep(props: Props) {
         <h2>Requirement check</h2>
         <p className="summary">
           <span className="summary__pill summary__pill--pass">{results.length - fails.length - warns.length - pending.length} passed</span>
-          {warns.length > 0 && <span className="summary__pill summary__pill--warn">{warns.length} warnings</span>}
+          {warns.length > 0 && (
+            <span className="summary__pill summary__pill--warn">
+              {warns.length} warning{warns.length === 1 ? '' : 's'}
+            </span>
+          )}
           {fails.length > 0 && <span className="summary__pill summary__pill--fail">{fails.length} failed</span>}
         </p>
         <CheckList results={results} onFix={props.onFix} />

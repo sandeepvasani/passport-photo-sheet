@@ -81,7 +81,6 @@ export function renderSheet(
   // Scale bar so the user can confirm the lab printed at 100%.
   if (showScaleBar) {
     const barMm = spec.displayUnit === 'in' ? 25.4 : 25
-    const barLabel = spec.displayUnit === 'in' ? '1 inch' : '25 mm'
     const cy = (free.y + free.h / 2) * k
     const x0 = Math.max(layout.marginMm, 4) * k
     const x1 = x0 + barMm * k
@@ -99,9 +98,16 @@ export function renderSheet(
     ctx.fillStyle = '#333'
     ctx.font = `${Math.round(2.2 * k)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`
     ctx.textBaseline = 'middle'
-    const name = spec.label.includes(spec.sizeLabel) ? spec.label : `${spec.label} ${spec.sizeLabel}`
-    const text = `← should measure exactly ${barLabel}  ·  ${name}  ·  cut along the grey lines`
-    ctx.fillText(text, x1 + 2 * k, cy, W - x1 - 4 * k)
+    ctx.fillText(scaleBarLabel(spec, opts.cutGuides), x1 + 2 * k, cy, W - x1 - 4 * k)
   }
   return canvas
+}
+
+/** Text printed beside the scale bar; it only mentions the cut lines when they're drawn. */
+export function scaleBarLabel(spec: PhotoSpec, cutGuides: boolean): string {
+  const barLabel = spec.displayUnit === 'in' ? '1 inch' : '25 mm'
+  const name = spec.label.includes(spec.sizeLabel) ? spec.label : `${spec.label} ${spec.sizeLabel}`
+  const parts = [`← should measure exactly ${barLabel}`, name]
+  if (cutGuides) parts.push('cut along the grey lines')
+  return parts.join('  ·  ')
 }

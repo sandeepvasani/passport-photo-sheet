@@ -172,8 +172,10 @@ export function setJpegDpi(bytes: Uint8Array, dpi: number): Uint8Array {
 }
 
 export async function canvasToJpeg(canvas: HTMLCanvasElement, dpi: number, quality = 0.95): Promise<Blob> {
+  // toBlob gives null when the browser can't spare the memory (common with large sheets on phones).
+  const error = 'Couldn’t create the image file. Your browser may be low on memory: close other tabs and try again.'
   const blob = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not encode JPEG'))), 'image/jpeg', quality),
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error(error))), 'image/jpeg', quality),
   )
   const bytes = setJpegDpi(new Uint8Array(await blob.arrayBuffer()), dpi)
   return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/jpeg' })
