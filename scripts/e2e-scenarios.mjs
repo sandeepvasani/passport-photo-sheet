@@ -643,7 +643,12 @@ await scenario('A first visit reloads once to turn on multi-threading, and ONNX 
   await page.waitForFunction(() => self.crossOriginIsolated, null, { timeout: 30_000 }).catch(() => {})
   await page.waitForTimeout(500)
   expect(await page.evaluate(() => self.crossOriginIsolated), 'not cross-origin isolated after the first visit')
-  expect(loads === 2, `${loads} page loads on the first visit, expected 2 (one reload)`)
+  // The app notes the reload it makes. Firefox also counts a page load of its own as it switches the page
+  // into isolation (a new process), so the number of loads is only checked in the other engines.
+  const reloaded = await page.evaluate(() => sessionStorage.getItem('passport-photo:isolation-reload'))
+  expect(reloaded === '1', `the app didn’t note its reload (${reloaded})`)
+  if (engine !== 'firefox') expect(loads === 2, `${loads} page loads on the first visit, expected 2 (one reload)`)
+  const before = loads
   await page.reload()
   await page.waitForTimeout(1000)
   expect(loads === 3, `${loads - 2} loads on the next visit, expected no extra reload`)

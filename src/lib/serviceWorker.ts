@@ -1,3 +1,16 @@
+/** Set just before the first-visit reload (see below), so a tab never reloads twice for it, whatever the browser does. */
+const ISOLATION_RELOAD = 'passport-photo:isolation-reload'
+
+function reloadedBefore(): boolean {
+  try {
+    if (sessionStorage.getItem(ISOLATION_RELOAD)) return true
+    sessionStorage.setItem(ISOLATION_RELOAD, '1')
+  } catch {
+    // Storage blocked: it still reloads at most once per page.
+  }
+  return false
+}
+
 /**
  * Registers the service worker (see src/service-worker.js) in the built site. It keeps the
  * site working offline and makes the page cross-origin isolated, which lets ONNX Runtime
@@ -13,7 +26,7 @@ export function registerServiceWorker(canReload: () => boolean): void {
   navigator.serviceWorker.addEventListener(
     'controllerchange',
     () => {
-      if (!crossOriginIsolated && canReload()) location.reload()
+      if (!crossOriginIsolated && canReload() && !reloadedBefore()) location.reload()
     },
     { once: true },
   )
