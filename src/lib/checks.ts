@@ -617,9 +617,57 @@ export function gazeCheck(offset: number): CheckResult {
   }
 }
 
+/** Both eyes open, from the face mesh's blink scores. */
+export function eyesOpenCheck(blendshapes: Record<string, number>): CheckResult {
+  const blink = Math.max(blendshapes.eyeBlinkLeft ?? 0, blendshapes.eyeBlinkRight ?? 0)
+  return {
+    id: 'eyes-open',
+    label: 'Both eyes open',
+    status: blink < EYES_OPEN_LIMIT ? 'pass' : blink < 0.7 ? 'warn' : 'fail',
+    detail: blink < EYES_OPEN_LIMIT ? 'Eyes look open' : 'One or both eyes look closed or squinting.',
+  }
+}
+
+/** Head turned or tilted; null when the pose couldn't be estimated. */
+export function facingCheck(pose: FaceAnalysis['pose']): CheckResult | null {
+  if (!pose) return null
+  // Pitch estimates also shift with camera height, so they're held to a looser standard.
+  const yaw = Math.abs(pose.yaw)
+  const pitch = Math.abs(pose.pitch)
+  const status: CheckStatus = yaw > 15 ? 'fail' : yaw > 8 || pitch > 15 ? 'warn' : 'pass'
+  return {
+    id: 'facing',
+    label: 'Facing the camera',
+    status,
+    detail:
+      status === 'pass'
+        ? 'Looking straight at the camera'
+        : yaw > 8
+          ? `Head turned about ${Math.round(yaw)}° to the side — face the camera directly.`
+          : `Head tilted about ${Math.round(pitch)}° up or down — keep your chin level with the camera at eye height.`,
+  }
+}
+
+/** The hair reaches the top of the original photo; null when it doesn't. */
+export function crownEdgeCheck(analysis: FaceAnalysis): CheckResult | null {
+  if (!analysis.crownAtImageEdge) return null
+  return {
+    id: 'crown-edge',
+    label: 'Top of head visible',
+    status: 'warn',
+    detail:
+      'The hair touches the top edge of your original photo, so the head size may be underestimated. Retake with more space above the head.',
+  }
+}
+
+const STATUS_ORDER: Record<CheckStatus, number> = { fail: 0, warn: 1, pending: 2, pass: 3 }
+/** Failures first, then warnings, checks still running, and passes. */
+const byStatus = (a: CheckResult, b: CheckResult) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]
+
 /**
  * Problems that need a new photo rather than a different crop (other people in the frame,
- * glasses, expression, gaze), shown on the Crop step so they can be fixed early.
+ * hair cut off at the top, closed eyes, expression, gaze, glasses, a turned head, shadows),
+ * shown on the Crop step so they're known before any more work goes into the photo.
  */
 export function retakeIssues(
   analysis: FaceAnalysis,
@@ -627,15 +675,21 @@ export function retakeIssues(
   spec: PhotoSpec,
   expression: ExpressionScores | 'pending' | null,
 ): CheckResult[] {
-  const bs = analysis.blendshapes
-  const eyesOpen = Math.max(bs.eyeBlinkLeft ?? 0, bs.eyeBlinkRight ?? 0) < EYES_OPEN_LIMIT
+  const eyes = eyesOpenCheck(analysis.blendshapes)
   return [
     faceCountCheck(analysis, crop, spec),
-    ...eyewearChecks(spec, analysis.eyewear),
+    crownEdgeCheck(analysis),
+    eyes,
     // What the face mesh found can be shown while the expression model still loads.
-    expressionCheck(spec, bs, analysis.landmarks, expression === 'pending' ? null : expression),
-    ...(eyesOpen ? [gazeCheck(gazeOffset(analysis.landmarks))] : []),
-  ].filter((r) => r.status === 'warn' || r.status === 'fail')
+    expressionCheck(spec, analysis.blendshapes, analysis.landmarks, expression === 'pending' ? null : expression),
+    // Closed eyes have no iris to place.
+    eyes.status === 'pass' ? gazeCheck(gazeOffset(analysis.landmarks)) : null,
+    ...eyewearChecks(spec, analysis.eyewear),
+    facingCheck(analysis.pose),
+    lightingCheck(analysis.lighting),
+  ]
+    .filter((r): r is CheckResult => r?.status === 'warn' || r?.status === 'fail')
+    .sort(byStatus)
 }
 
 /** Whether any part of a face (grown a little to cover hair and ears) falls inside the passport frame. */
@@ -698,50 +752,20 @@ export function runChecks(input: CheckInput): CheckResult[] {
   results.push(faceCountCheck(analysis, crop, spec))
 
   results.push(...geometryChecks(spec, markers, crop, image, bg))
-  if (analysis.crownAtImageEdge) {
-    results.push({
-      id: 'crown-edge',
-      label: 'Top of head visible',
-      status: 'warn',
-      detail:
-        'The hair touches the top edge of your original photo, so the head size may be underestimated. Retake with more space above the head.',
-    })
-  }
+  const crownEdge = crownEdgeCheck(analysis)
+  if (crownEdge) results.push(crownEdge)
 
-  const bs = analysis.blendshapes
   if (analysis.faceCount > 0) {
-    const blink = Math.max(bs.eyeBlinkLeft ?? 0, bs.eyeBlinkRight ?? 0)
-    results.push({
-      id: 'eyes-open',
-      label: 'Both eyes open',
-      status: blink < EYES_OPEN_LIMIT ? 'pass' : blink < 0.7 ? 'warn' : 'fail',
-      detail: blink < EYES_OPEN_LIMIT ? 'Eyes look open' : 'One or both eyes look closed or squinting.',
-    })
-
-    results.push(expressionCheck(spec, bs, analysis.landmarks, input.expression ?? null))
+    const eyes = eyesOpenCheck(analysis.blendshapes)
+    results.push(eyes)
+    results.push(expressionCheck(spec, analysis.blendshapes, analysis.landmarks, input.expression ?? null))
     // Closed eyes have no iris to place.
-    if (blink < EYES_OPEN_LIMIT) results.push(gazeCheck(gazeOffset(analysis.landmarks)))
+    if (eyes.status === 'pass') results.push(gazeCheck(gazeOffset(analysis.landmarks)))
   }
 
   results.push(...eyewearChecks(spec, analysis.eyewear))
-
-  if (analysis.pose) {
-    // Pitch estimates also shift with camera height, so they're held to a looser standard.
-    const yaw = Math.abs(analysis.pose.yaw)
-    const pitch = Math.abs(analysis.pose.pitch)
-    const status: CheckStatus = yaw > 15 ? 'fail' : yaw > 8 || pitch > 15 ? 'warn' : 'pass'
-    results.push({
-      id: 'facing',
-      label: 'Facing the camera',
-      status,
-      detail:
-        status === 'pass'
-          ? 'Looking straight at the camera'
-          : yaw > 8
-            ? `Head turned about ${Math.round(yaw)}° to the side — face the camera directly.`
-            : `Head tilted about ${Math.round(pitch)}° up or down — keep your chin level with the camera at eye height.`,
-    })
-  }
+  const facing = facingCheck(analysis.pose)
+  if (facing) results.push(facing)
 
   results.push(backgroundCheck(photo, data, spec, bg))
   if (bg.mode === 'replace') {
@@ -852,6 +876,5 @@ export function runChecks(input: CheckInput): CheckResult[] {
     }
   }
 
-  const order: Record<CheckStatus, number> = { fail: 0, warn: 1, pending: 2, pass: 3 }
-  return results.sort((a, b) => order[a.status] - order[b.status])
+  return results.sort(byStatus)
 }

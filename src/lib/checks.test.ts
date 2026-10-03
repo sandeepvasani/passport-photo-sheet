@@ -18,6 +18,7 @@ import {
   gazeOffset,
   geometryChecks,
   lightingCheck,
+  retakeIssues,
   type CheckResult,
 } from './checks'
 import type { ExpressionScores } from './expression'
@@ -211,6 +212,43 @@ const FER = {
   grief: fer([0.32, 0, 0, 0.62, 0.02, 0.02, 0, 0.02]),
 }
 const relaxed = { mouthSmileLeft: 0.17, mouthSmileRight: 0.15, mouthPucker: 0 }
+
+describe('retakeIssues', () => {
+  // One person facing the camera with open eyes, no glasses and even light.
+  const fine = {
+    faceCount: 1,
+    faces: [],
+    subject: 0,
+    landmarks: [],
+    blendshapes: {},
+    pose: { yaw: 2, pitch: 3 },
+    crownAtImageEdge: false,
+    eyewear: none,
+    lighting: MEASURED.portrait,
+  } as unknown as FaceAnalysis
+  const crop: Crop = { cx: 0, cy: 0, angle: 0, pxPerMm: 20 }
+
+  it('finds nothing in a photo that can be used', () => {
+    expect(retakeIssues(fine, crop, US_PASSPORT, null)).toEqual([])
+  })
+
+  it('reports closed eyes, a turned head, hair at the top edge and shadows before the photo is cropped, failures first', () => {
+    const analysis = {
+      ...fine,
+      blendshapes: { eyeBlinkLeft: 0.9 },
+      pose: { yaw: 20, pitch: 0 },
+      crownAtImageEdge: true,
+      lighting: MEASURED.shadowSide,
+    }
+    const issues = retakeIssues(analysis, crop, US_PASSPORT, null)
+    expect(issues.map((r) => [r.id, r.status])).toEqual([
+      ['eyes-open', 'fail'],
+      ['facing', 'fail'],
+      ['crown-edge', 'warn'],
+      ['shadows', 'warn'],
+    ])
+  })
+})
 
 describe('expressionCheck', () => {
   it('passes a relaxed face', () => {
