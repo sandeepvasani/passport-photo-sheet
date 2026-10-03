@@ -28,7 +28,7 @@ npm test           # unit tests (geometry, layout, matting, JPEG DPI)
 npm run build      # type-check and build static files to dist/
 ```
 
-`npm run setup` (also run automatically before `dev` and `build`) copies the MediaPipe wasm runtime from `node_modules` into `public/mediapipe/`. It downloads the face landmarker, segmentation, MODNet and FER+ models (about 52 MB) into `public/models/`. Both folders are generated and git-ignored. Vite bundles the ONNX Runtime wasm itself. If Node can't download through a TLS-inspecting proxy, the script falls back to `curl`.
+`npm run setup` (also run automatically before `dev` and `build`) copies the MediaPipe wasm runtime from `node_modules` into `public/mediapipe/`. It downloads the face landmarker, segmentation, MODNet and FER+ models (about 52 MB) into `public/models/`. Each model is a fixed version whose SHA-256 is checked, so every build ships the same files; a missing, incomplete or changed file is downloaded again. To update a model, change its URL and hash in [`scripts/setup-assets.mjs`](scripts/setup-assets.mjs). Both folders are generated and git-ignored. Vite bundles the ONNX Runtime wasm itself. If Node can't download through a TLS-inspecting proxy, the script falls back to `curl`.
 
 ### End-to-end check
 
