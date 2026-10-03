@@ -61,7 +61,12 @@ const out = await page.evaluate(async (b64) => {
   }
 }, readFileSync('test-images/portrait.jpg').toString('base64'))
 await browser.close()
-for (const [key, file] of [['foreheadSide', 'shadow-forehead-side'], ['brim', 'shadow-brim'], ['overhead', 'shadow-overhead'], ['side', 'shadow-side']]) {
+for (const [key, file] of [
+  ['foreheadSide', 'shadow-forehead-side'],
+  ['brim', 'shadow-brim'],
+  ['overhead', 'shadow-overhead'],
+  ['side', 'shadow-side'],
+]) {
   writeFileSync(`test-images/${file}.jpg`, Buffer.from(out[key], 'base64'))
 }
 console.log('wrote test-images/shadow-{forehead-side,brim,overhead,side}.jpg')

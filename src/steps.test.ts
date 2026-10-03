@@ -12,7 +12,10 @@ describe('fixStep', () => {
     // A face tilted 10° in a 3000×4000 photo, and a crop that's off-centre, cuts off the
     // chin and reaches past the left edge, so every measurement reports.
     const t = (10 * Math.PI) / 180
-    const at = (dx: number, dy: number) => ({ x: 1500 + dx * Math.cos(t) - dy * Math.sin(t), y: 1600 + dx * Math.sin(t) + dy * Math.cos(t) })
+    const at = (dx: number, dy: number) => ({
+      x: 1500 + dx * Math.cos(t) - dy * Math.sin(t),
+      y: 1600 + dx * Math.sin(t) + dy * Math.cos(t),
+    })
     const markers: Markers = { eyeLeft: at(-150, 0), eyeRight: at(150, 0), crown: at(0, -600), chin: at(0, 600), faceWidthPx: 800 }
     const crop: Crop = { cx: 200, cy: 1000, angle: 0, pxPerMm: 20 }
     const image = { width: 3000, height: 4000 } as LoadedImage
@@ -37,6 +40,7 @@ describe('fixStep', () => {
   })
 
   it('sends problems that need a new photo to Upload', () => {
-    for (const id of ['expression', 'eyes-open', 'gaze', 'glasses', 'crown-edge', 'shadows', 'focus']) expect(fixStep(id), id).toBe('upload')
+    for (const id of ['expression', 'eyes-open', 'gaze', 'glasses', 'crown-edge', 'shadows', 'focus'])
+      expect(fixStep(id), id).toBe('upload')
   })
 })

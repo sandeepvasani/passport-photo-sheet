@@ -139,12 +139,7 @@ function detectFaces(face: FaceLandmarker, src: HTMLCanvasElement, offset: Point
   })
 }
 
-function segmentRegion(
-  segmenter: ImageSegmenter,
-  image: LoadedImage,
-  rect: MaskLayer['rect'],
-  maxSide: number,
-): MaskLayer {
+function segmentRegion(segmenter: ImageSegmenter, image: LoadedImage, rect: MaskLayer['rect'], maxSide: number): MaskLayer {
   return segmentWithSkin(segmenter, image, rect, maxSide, false).person
 }
 
@@ -212,11 +207,7 @@ function sampleLayers(layers: MaskLayer[], p: Point): number | null {
  * Finds the top of the head (including hair) by walking up from the forehead
  * along the face's vertical axis until the person mask ends.
  */
-function findCrown(
-  layers: MaskLayer[],
-  lms: Point[],
-  image: LoadedImage,
-): { crown: Point; atEdge: boolean } {
+function findCrown(layers: MaskLayer[], lms: Point[], image: LoadedImage): { crown: Point; atEdge: boolean } {
   const forehead = lms[LM.forehead]
   const chin = lms[LM.chin]
   const faceH = Math.hypot(chin.x - forehead.x, chin.y - forehead.y)
@@ -348,7 +339,9 @@ function analyzeEyewear(segmenter: ImageSegmenter, image: LoadedImage, lms: Poin
         lensN++
         lensSum += gray[i]
         if ((x - c.x) ** 2 + (y - c.y) ** 2 <= r * r) continue
-        const R = px[i * 4], G = px[i * 4 + 1], B = px[i * 4 + 2]
+        const R = px[i * 4],
+          G = px[i * 4 + 1],
+          B = px[i * 4 + 2]
         if (gray[i] >= 240 && Math.max(R, G, B) - Math.min(R, G, B) <= 30) glare++
       }
     }
@@ -379,7 +372,10 @@ function analyzeEyewear(segmenter: ImageSegmenter, image: LoadedImage, lms: Poin
 }
 
 // Face-mesh outlines used to find bare skin.
-const FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109]
+const FACE_OVAL = [
+  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93,
+  234, 127, 162, 21, 54, 103, 67, 109,
+]
 const EYE_LEFT = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
 const EYE_RIGHT = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
 const BROW_LEFT = [70, 63, 105, 66, 107, 55, 65, 52, 53, 46]
@@ -463,7 +459,11 @@ function analyzeLighting(image: LoadedImage, lms: Point[], skin: MaskLayer | nul
   poly(BROW_RIGHT, 1.25, '#000')
   poly(LIPS, 1.15, '#000')
   vctx.fillStyle = '#000'
-  for (const [i, r] of [[2, 14], [98, 10], [327, 10]] as const) {
+  for (const [i, r] of [
+    [2, 14],
+    [98, 10],
+    [327, 10],
+  ] as const) {
     const c = toCrop(lms[i])
     vctx.beginPath()
     vctx.arc(c.x, c.y, r * u, 0, Math.PI * 2)
@@ -579,7 +579,10 @@ function poseFromMatrix(m: Matrix): { yaw: number; pitch: number } {
 }
 
 function personBounds(layer: MaskLayer): MaskLayer['rect'] | null {
-  let x0 = Infinity, y0 = Infinity, x1 = -1, y1 = -1
+  let x0 = Infinity,
+    y0 = Infinity,
+    x1 = -1,
+    y1 = -1
   for (let y = 0; y < layer.h; y++) {
     for (let x = 0; x < layer.w; x++) {
       if (layer.data[y * layer.w + x] > 0.5) {
@@ -608,11 +611,7 @@ export async function analyzePhoto(image: LoadedImage): Promise<FaceAnalysis> {
     const body = personBounds(full)
     if (body) {
       const side = Math.min(body.w, body.h) * 1.1
-      const roi = clampRect(
-        { x: body.x + body.w / 2 - side / 2, y: body.y - side * 0.1, w: side, h: side },
-        image.width,
-        image.height,
-      )
+      const roi = clampRect({ x: body.x + body.w / 2 - side / 2, y: body.y - side * 0.1, w: side, h: side }, image.width, image.height)
       const crop = createCanvas(roi.w, roi.h)
       ctx2d(crop).drawImage(image.canvas, roi.x, roi.y, roi.w, roi.h, 0, 0, roi.w, roi.h)
       const cropSmall = downscale(crop, 1280)
@@ -663,11 +662,7 @@ function analyzeSubject(
   const eyes = midpoint(lms[LM.irisA], lms[LM.irisB])
 
   // Sharper mask around head and shoulders (the model works at 256×256 internally).
-  const roi = clampRect(
-    { x: eyes.x - faceH * 2.2, y: eyes.y - faceH * 2, w: faceH * 4.4, h: faceH * 4.6 },
-    image.width,
-    image.height,
-  )
+  const roi = clampRect({ x: eyes.x - faceH * 2.2, y: eyes.y - faceH * 2, w: faceH * 4.4, h: faceH * 4.6 }, image.width, image.height)
   const head = segmentWithSkin(segmenter, image, roi, 768, true)
   const masks = [full, head.person]
   const { crown, atEdge } = findCrown(masks, lms, image)

@@ -10,7 +10,16 @@ import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSiz
 import { backgroundCheck, retakeIssues, runChecks, type CheckResult } from './lib/checks'
 import { scoreExpression, type ExpressionScores } from './lib/expression'
 import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
-import { canvasToJpeg, canvasToJpegSized, ctx2d, downloadBlob, loadImageFile, releaseCanvas, releaseImage, type LoadedImage } from './lib/image'
+import {
+  canvasToJpeg,
+  canvasToJpegSized,
+  ctx2d,
+  downloadBlob,
+  loadImageFile,
+  releaseCanvas,
+  releaseImage,
+  type LoadedImage,
+} from './lib/image'
 import { computeLayout, type LayoutMode } from './lib/layout'
 import type { MaskLayer } from './lib/mask'
 import { matteCovers, portraitMatte } from './lib/matte'
@@ -144,9 +153,7 @@ export default function App() {
   )
   const photo = useMemo(
     () =>
-      session && deferredCrop && needsRender
-        ? renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, PRINT_DPI, subject)
-        : null,
+      session && deferredCrop && needsRender ? renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, PRINT_DPI, subject) : null,
     [session, masks, deferredCrop, spec, deferredBg, needsRender, subject],
   )
   const originalPreview = useMemo(
@@ -161,13 +168,24 @@ export default function App() {
   // Upload-only photo types are never printed, so they don't get a sheet.
   const sheet = useMemo(
     () =>
-      photo && !uploadOnly && (step === 'layout' || step === 'check') ? renderSheet(photo.canvas, layout, spec, { cutGuides }, PRINT_DPI) : null,
+      photo && !uploadOnly && (step === 'layout' || step === 'check')
+        ? renderSheet(photo.canvas, layout, spec, { cutGuides }, PRINT_DPI)
+        : null,
     [photo, uploadOnly, layout, spec, cutGuides, step],
   )
   const results = useMemo(
     () =>
       session && markers && deferredCrop && photo && step === 'check'
-        ? runChecks({ spec, image: session.image, analysis: session.analysis, markers, crop: deferredCrop, bg: deferredBg, photo, expression: expressionScores })
+        ? runChecks({
+            spec,
+            image: session.image,
+            analysis: session.analysis,
+            markers,
+            crop: deferredCrop,
+            bg: deferredBg,
+            photo,
+            expression: expressionScores,
+          })
         : [],
     [session, markers, deferredCrop, photo, spec, deferredBg, step, expressionScores],
   )
@@ -336,7 +354,12 @@ export default function App() {
         </span>
       </header>
 
-      <Stepper steps={uploadOnly ? STEPS.filter((s) => s.id !== 'layout') : STEPS} current={step} enabled={(s) => s === 'upload' || !!session} onSelect={goto} />
+      <Stepper
+        steps={uploadOnly ? STEPS.filter((s) => s.id !== 'layout') : STEPS}
+        current={step}
+        enabled={(s) => s === 'upload' || !!session}
+        onSelect={goto}
+      />
 
       <main className="app__main" ref={mainRef}>
         {step === 'upload' && (

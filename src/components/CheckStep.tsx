@@ -90,8 +90,8 @@ export function CheckStep(props: Props) {
             <ol>
               <li>Download the photo below.</li>
               <li>
-                Upload it to the online form as it is. It’s exactly {digital!.widthPx} × {digital!.heightPx} pixels and {fileSizeRule}; editing or
-                re-saving it in another app can change that.
+                Upload it to the online form as it is. It’s exactly {digital!.widthPx} × {digital!.heightPx} pixels and {fileSizeRule};
+                editing or re-saving it in another app can change that.
               </li>
             </ol>
           </div>
@@ -105,13 +105,13 @@ export function CheckStep(props: Props) {
                 service. Matte or glossy are both fine.
               </li>
               <li>
-                The file is {Math.round(print.widthIn * PRINT_DPI)} × {Math.round(print.heightIn * PRINT_DPI)} pixels, exactly {print.label} at{' '}
-                {PRINT_DPI} DPI (the standard print resolution), so every photo prints at exactly {spec.sizeLabel}. Choose the same print size,
-                keep the whole image selected if the order screen offers cropping, and turn off any auto-enhance.
+                The file is {Math.round(print.widthIn * PRINT_DPI)} × {Math.round(print.heightIn * PRINT_DPI)} pixels, exactly {print.label}{' '}
+                at {PRINT_DPI} DPI (the standard print resolution), so every photo prints at exactly {spec.sizeLabel}. Choose the same print
+                size, keep the whole image selected if the order screen offers cropping, and turn off any auto-enhance.
               </li>
               <li>
-                At home, {props.cutGuides ? 'cut along the grey lines' : 'cut the photos apart'} and measure one photo with a ruler: it should be
-                exactly {spec.sizeLabel}.
+                At home, {props.cutGuides ? 'cut along the grey lines' : 'cut the photos apart'} and measure one photo with a ruler: it
+                should be exactly {spec.sizeLabel}.
               </li>
             </ol>
           </div>
@@ -142,7 +142,11 @@ export function CheckStep(props: Props) {
           ))}
           {warns.length > 0 && (
             <label className="checkbox checkbox--warn">
-              <input type="checkbox" checked={ackWarnings === warningKey} onChange={(e) => props.onAckWarnings(e.target.checked ? warningKey : null)} />
+              <input
+                type="checkbox"
+                checked={ackWarnings === warningKey}
+                onChange={(e) => props.onAckWarnings(e.target.checked ? warningKey : null)}
+              />
               I’ve reviewed the warnings above and want to continue
             </label>
           )}

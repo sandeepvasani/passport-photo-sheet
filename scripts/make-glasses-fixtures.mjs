@@ -23,7 +23,8 @@ const out = await page.evaluate(async (b64) => {
   }
   const glare = copy()
   const g = ctx2d(glare)
-  const gx = L[468].x + iod * 0.12, gy = L[468].y - iod * 0.12
+  const gx = L[468].x + iod * 0.12,
+    gy = L[468].y - iod * 0.12
   const grad = g.createRadialGradient(gx, gy, 0, gx, gy, iod * 0.2)
   grad.addColorStop(0, 'rgba(255,255,255,1)')
   grad.addColorStop(0.6, 'rgba(255,255,255,0.95)')

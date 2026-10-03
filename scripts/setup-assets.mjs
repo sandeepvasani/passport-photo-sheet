@@ -44,7 +44,9 @@ const MODELS = [
 /** SHA-256 of a file, or null if it doesn't exist. */
 async function hashOf(path) {
   try {
-    return createHash('sha256').update(await readFile(path)).digest('hex')
+    return createHash('sha256')
+      .update(await readFile(path))
+      .digest('hex')
   } catch {
     return null
   }
@@ -78,7 +80,9 @@ for (const { file, url, sha256 } of MODELS) {
   const actual = await hashOf(part)
   if (actual !== sha256) {
     await rm(part, { force: true })
-    throw new Error(`${file} from ${url} has SHA-256 ${actual}, expected ${sha256}. The download may be incomplete, or the file has changed.`)
+    throw new Error(
+      `${file} from ${url} has SHA-256 ${actual}, expected ${sha256}. The download may be incomplete, or the file has changed.`,
+    )
   }
   await rename(part, dest)
 }

@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "oxlint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "e2e": "node scripts/e2e.mjs",
     "e2e:scenarios": "node scripts/e2e-scenarios.mjs"
   },
@@ -28,6 +30,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
     "playwright": "^1.63.0",
+    "prettier": "3.9.9",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.3"

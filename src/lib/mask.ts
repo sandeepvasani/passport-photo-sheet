@@ -13,13 +13,7 @@ export interface MaskLayer {
   kind: 'segmentation' | 'matte'
 }
 
-export function makeMaskLayer(
-  data: Float32Array,
-  w: number,
-  h: number,
-  rect: MaskLayer['rect'],
-  kind: MaskLayer['kind'],
-): MaskLayer {
+export function makeMaskLayer(data: Float32Array, w: number, h: number, rect: MaskLayer['rect'], kind: MaskLayer['kind']): MaskLayer {
   const canvas = createCanvas(w, h)
   const ctx = ctx2d(canvas)
   const img = ctx.createImageData(w, h)

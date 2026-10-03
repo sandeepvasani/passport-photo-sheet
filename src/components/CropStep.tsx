@@ -25,13 +25,16 @@ type MarkerKey = Exclude<keyof Markers, 'faceWidthPx'>
 
 /** Order M steps through with the keyboard; null moves the photo. */
 const KEY_ORDER: (MarkerKey | null)[] = [null, 'crown', 'chin', 'eyeLeft', 'eyeRight']
-const MARKER_NAME: Record<MarkerKey, string> = { crown: 'top of head', chin: 'chin', eyeLeft: 'eye on the left', eyeRight: 'eye on the right' }
+const MARKER_NAME: Record<MarkerKey, string> = {
+  crown: 'top of head',
+  chin: 'chin',
+  eyeLeft: 'eye on the left',
+  eyeRight: 'eye on the right',
+}
 const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
 
 type Drag =
-  | { kind: 'pan'; last: Point }
-  | { kind: 'marker'; key: MarkerKey }
-  | { kind: 'pinch'; startDist: number; startCrop: Crop; pivot: Point }
+  { kind: 'pan'; last: Point } | { kind: 'marker'; key: MarkerKey } | { kind: 'pinch'; startDist: number; startCrop: Crop; pivot: Point }
 
 /** Source pixel → editor canvas CSS pixel. */
 function viewOf(p: Point, crop: Crop, spec: PhotoSpec, vs: number, pad: number): Point {
@@ -86,130 +89,136 @@ function drawEditor(
   ctx.fillStyle = '#23262e'
   ctx.fillRect(0, 0, cssW, cssH)
 
-    ctx.save()
-    ctx.transform(...sourceToOutputTransform(crop, spec, vs, pad, pad))
-    // The editor draws a downscaled preview (scaled back up to working-image coordinates).
-    ctx.imageSmoothingQuality = fast ? 'low' : 'high'
-    ctx.drawImage(image.preview, 0, 0, image.width, image.height)
-    ctx.restore()
+  ctx.save()
+  ctx.transform(...sourceToOutputTransform(crop, spec, vs, pad, pad))
+  // The editor draws a downscaled preview (scaled back up to working-image coordinates).
+  ctx.imageSmoothingQuality = fast ? 'low' : 'high'
+  ctx.drawImage(image.preview, 0, 0, image.width, image.height)
+  ctx.restore()
 
-    // Dim everything outside the photo frame.
-    ctx.fillStyle = 'rgba(16, 18, 24, 0.62)'
-    ctx.beginPath()
-    ctx.rect(0, 0, cssW, cssH)
-    ctx.rect(pad, pad, frameW, frameH)
-    ctx.fill('evenodd')
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)'
-    ctx.lineWidth = 1
-    ctx.strokeRect(pad + 0.5, pad + 0.5, frameW - 1, frameH - 1)
+  // Dim everything outside the photo frame.
+  ctx.fillStyle = 'rgba(16, 18, 24, 0.62)'
+  ctx.beginPath()
+  ctx.rect(0, 0, cssW, cssH)
+  ctx.rect(pad, pad, frameW, frameH)
+  ctx.fill('evenodd')
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)'
+  ctx.lineWidth = 1
+  ctx.strokeRect(pad + 0.5, pad + 0.5, frameW - 1, frameH - 1)
 
-    ctx.font = '600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif'
-    ctx.textBaseline = 'middle'
+  ctx.font = '600 11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif'
+  ctx.textBaseline = 'middle'
 
-    // Centre line.
-    ctx.setLineDash([4, 4])
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'
-    ctx.beginPath()
-    ctx.moveTo(pad + frameW / 2, pad)
-    ctx.lineTo(pad + frameW / 2, pad + frameH)
-    ctx.stroke()
+  // Centre line.
+  ctx.setLineDash([4, 4])
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'
+  ctx.beginPath()
+  ctx.moveTo(pad + frameW / 2, pad)
+  ctx.lineTo(pad + frameW / 2, pad + frameH)
+  ctx.stroke()
 
-    // Allowed eye zone (or crown zone when the spec defines one instead).
-    const zone = spec.eyeFromBottomMm && Number.isFinite(spec.eyeFromBottomMm.max)
-      ? { top: spec.heightMm - spec.eyeFromBottomMm.max, bottom: spec.heightMm - spec.eyeFromBottomMm.min, label: 'eyes', color: '250, 204, 21' }
+  // Allowed eye zone (or crown zone when the spec defines one instead).
+  const zone =
+    spec.eyeFromBottomMm && Number.isFinite(spec.eyeFromBottomMm.max)
+      ? {
+          top: spec.heightMm - spec.eyeFromBottomMm.max,
+          bottom: spec.heightMm - spec.eyeFromBottomMm.min,
+          label: 'eyes',
+          color: '250, 204, 21',
+        }
       : spec.topMarginMm
         ? { top: spec.topMarginMm.min, bottom: spec.topMarginMm.max, label: 'top of head', color: '56, 189, 248' }
         : null
-    if (zone) {
-      const y1 = pad + zone.top * vs
-      const y2 = pad + zone.bottom * vs
-      ctx.fillStyle = `rgba(${zone.color}, 0.14)`
-      ctx.fillRect(pad, y1, frameW, y2 - y1)
-      ctx.strokeStyle = `rgba(${zone.color}, 0.75)`
-      ctx.beginPath()
-      ctx.moveTo(pad, y1)
-      ctx.lineTo(pad + frameW, y1)
-      ctx.moveTo(pad, y2)
-      ctx.lineTo(pad + frameW, y2)
-      ctx.stroke()
-      ctx.fillStyle = `rgba(${zone.color}, 0.95)`
-      ctx.textAlign = 'right'
-      ctx.fillText(zone.label, pad - 6, (y1 + y2) / 2)
-    }
-    ctx.setLineDash([])
+  if (zone) {
+    const y1 = pad + zone.top * vs
+    const y2 = pad + zone.bottom * vs
+    ctx.fillStyle = `rgba(${zone.color}, 0.14)`
+    ctx.fillRect(pad, y1, frameW, y2 - y1)
+    ctx.strokeStyle = `rgba(${zone.color}, 0.75)`
+    ctx.beginPath()
+    ctx.moveTo(pad, y1)
+    ctx.lineTo(pad + frameW, y1)
+    ctx.moveTo(pad, y2)
+    ctx.lineTo(pad + frameW, y2)
+    ctx.stroke()
+    ctx.fillStyle = `rgba(${zone.color}, 0.95)`
+    ctx.textAlign = 'right'
+    ctx.fillText(zone.label, pad - 6, (y1 + y2) / 2)
+  }
+  ctx.setLineDash([])
 
-    // Markers.
-    const crownV = viewOf(markers.crown, crop, spec, vs, pad)
-    const chinV = viewOf(markers.chin, crop, spec, vs, pad)
-    const eL = viewOf(markers.eyeLeft, crop, spec, vs, pad)
-    const eR = viewOf(markers.eyeRight, crop, spec, vs, pad)
-    const blue = '#38bdf8'
-    for (const [p, label] of [
-      [crownV, 'top of head'],
-      [chinV, 'chin'],
-    ] as const) {
-      ctx.strokeStyle = blue
-      ctx.lineWidth = 1.5
-      ctx.beginPath()
-      ctx.moveTo(pad, p.y)
-      ctx.lineTo(pad + frameW, p.y)
-      ctx.stroke()
-      ctx.fillStyle = blue
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.strokeStyle = '#fff'
-      ctx.stroke()
-      ctx.textAlign = 'left'
-      ctx.fillText(label, pad + 6, p.y + (label === 'chin' ? 10 : -10))
-    }
-    ctx.strokeStyle = '#facc15'
+  // Markers.
+  const crownV = viewOf(markers.crown, crop, spec, vs, pad)
+  const chinV = viewOf(markers.chin, crop, spec, vs, pad)
+  const eL = viewOf(markers.eyeLeft, crop, spec, vs, pad)
+  const eR = viewOf(markers.eyeRight, crop, spec, vs, pad)
+  const blue = '#38bdf8'
+  for (const [p, label] of [
+    [crownV, 'top of head'],
+    [chinV, 'chin'],
+  ] as const) {
+    ctx.strokeStyle = blue
     ctx.lineWidth = 1.5
     ctx.beginPath()
-    ctx.moveTo(eL.x, eL.y)
-    ctx.lineTo(eR.x, eR.y)
+    ctx.moveTo(pad, p.y)
+    ctx.lineTo(pad + frameW, p.y)
     ctx.stroke()
-    for (const p of [eL, eR]) {
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, 5.5, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2)
-      ctx.fillStyle = '#facc15'
-      ctx.fill()
-    }
-    if (selected) {
-      const p = { crown: crownV, chin: chinV, eyeLeft: eL, eyeRight: eR }[selected]
-      ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 2
-      ctx.setLineDash([3, 3])
-      ctx.beginPath()
-      ctx.arc(p.x, p.y, 12, 0, Math.PI * 2)
-      ctx.stroke()
-      ctx.setLineDash([])
-    }
-
-    // Head-height bracket to the right of the frame.
-    const m = measure(markers, crop, spec)
-    const ok = m.headHeightMm >= spec.headHeightMm.min - 0.05 && m.headHeightMm <= spec.headHeightMm.max + 0.05
-    const bx = pad + frameW + 10
-    ctx.strokeStyle = ok ? '#4ade80' : '#f87171'
-    ctx.fillStyle = ctx.strokeStyle
-    ctx.lineWidth = 2
+    ctx.fillStyle = blue
     ctx.beginPath()
-    ctx.moveTo(bx, crownV.y)
-    ctx.lineTo(bx, chinV.y)
-    ctx.moveTo(bx - 4, crownV.y)
-    ctx.lineTo(bx + 4, crownV.y)
-    ctx.moveTo(bx - 4, chinV.y)
-    ctx.lineTo(bx + 4, chinV.y)
+    ctx.arc(p.x, p.y, 6, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = '#fff'
     ctx.stroke()
-    ctx.save()
-    ctx.translate(bx + 12, (crownV.y + chinV.y) / 2)
-    ctx.rotate(-Math.PI / 2)
-    ctx.textAlign = 'center'
-    ctx.fillText(`head ${formatLength(m.headHeightMm, spec.displayUnit)}`, 0, 0)
-    ctx.restore()
+    ctx.textAlign = 'left'
+    ctx.fillText(label, pad + 6, p.y + (label === 'chin' ? 10 : -10))
+  }
+  ctx.strokeStyle = '#facc15'
+  ctx.lineWidth = 1.5
+  ctx.beginPath()
+  ctx.moveTo(eL.x, eL.y)
+  ctx.lineTo(eR.x, eR.y)
+  ctx.stroke()
+  for (const p of [eL, eR]) {
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 5.5, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 1.5, 0, Math.PI * 2)
+    ctx.fillStyle = '#facc15'
+    ctx.fill()
+  }
+  if (selected) {
+    const p = { crown: crownV, chin: chinV, eyeLeft: eL, eyeRight: eR }[selected]
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 2
+    ctx.setLineDash([3, 3])
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, 12, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.setLineDash([])
+  }
+
+  // Head-height bracket to the right of the frame.
+  const m = measure(markers, crop, spec)
+  const ok = m.headHeightMm >= spec.headHeightMm.min - 0.05 && m.headHeightMm <= spec.headHeightMm.max + 0.05
+  const bx = pad + frameW + 10
+  ctx.strokeStyle = ok ? '#4ade80' : '#f87171'
+  ctx.fillStyle = ctx.strokeStyle
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(bx, crownV.y)
+  ctx.lineTo(bx, chinV.y)
+  ctx.moveTo(bx - 4, crownV.y)
+  ctx.lineTo(bx + 4, crownV.y)
+  ctx.moveTo(bx - 4, chinV.y)
+  ctx.lineTo(bx + 4, chinV.y)
+  ctx.stroke()
+  ctx.save()
+  ctx.translate(bx + 12, (crownV.y + chinV.y) / 2)
+  ctx.rotate(-Math.PI / 2)
+  ctx.textAlign = 'center'
+  ctx.fillText(`head ${formatLength(m.headHeightMm, spec.displayUnit)}`, 0, 0)
+  ctx.restore()
 }
 
 function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorProps) {
@@ -254,7 +263,9 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) {
-      setDrawError('Your browser ran out of memory for images, so the photo can’t be shown. Close other tabs, reload the page and try again.')
+      setDrawError(
+        'Your browser ran out of memory for images, so the photo can’t be shown. Close other tabs, reload the page and try again.',
+      )
       return
     }
     const p = props.current
@@ -640,7 +651,8 @@ export function CropStep(props: StepProps) {
         <CropEditor {...props} />
         <p className="muted small center">
           Drag to move · scroll or pinch to zoom · drag the <span className="swatch-text swatch-text--blue">blue lines</span> and{' '}
-          <span className="swatch-text swatch-text--yellow">yellow eye markers</span> if they’re not exactly on the top of the hair, chin and pupils.
+          <span className="swatch-text swatch-text--yellow">yellow eye markers</span> if they’re not exactly on the top of the hair, chin
+          and pupils.
           <span className="keyboard-hint"> With a keyboard: arrow keys move, + and − zoom, M picks a marker to move.</span>
         </p>
       </section>

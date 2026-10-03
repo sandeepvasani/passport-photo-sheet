@@ -182,7 +182,8 @@ export const INDIA_2X2: PhotoSpec = {
   sourceUrl: 'https://visa.vfsglobal.com/one-pager/india/united-states-of-america/passport-services/pdf/photo-specifiation.pdf',
   related: {
     specId: 'in-online',
-    prompt: 'Applying for a passport, PCC, passport surrender or GEP instead? Those now need a 630 × 810 px photo uploaded on the Passport Seva portal.',
+    prompt:
+      'Applying for a passport, PCC, passport surrender or GEP instead? Those now need a 630 × 810 px photo uploaded on the Passport Seva portal.',
   },
 }
 
@@ -239,15 +240,12 @@ export const INTL_35X45: PhotoSpec = {
   // Overlap of UK (29–34 mm), Schengen/ICAO (32–36 mm) and Australia (32–36 mm).
   headHeightMm: { min: 32, max: 34 },
   topMarginMm: { min: 2, max: 6, target: 4 },
-  backgrounds: [
-    { id: 'lightgrey', label: 'Light grey', color: '#e6e6e6' },
-    WHITE,
-    { id: 'cream', label: 'Cream', color: '#f3eee0' },
-  ],
+  backgrounds: [{ id: 'lightgrey', label: 'Light grey', color: '#e6e6e6' }, WHITE, { id: 'cream', label: 'Cream', color: '#f3eee0' }],
   backgroundMinLuminance: 195,
   glasses: 'discouraged',
   expression: 'neutral',
-  editingPolicy: 'Most passport offices, including the UK’s and the Schengen countries’, require photos that haven’t been digitally altered.',
+  editingPolicy:
+    'Most passport offices, including the UK’s and the Schengen countries’, require photos that haven’t been digitally altered.',
   defaultPrintSizeId: '10x15cm',
   attestations: [
     RECENT,
@@ -295,8 +293,7 @@ export const CANADA_50X70: PhotoSpec = {
   notes: [
     'Paper applications need the photographer’s name, address and the date the photo was taken stamped on the back of one photo. Check whether a home-printed photo is accepted for your application.',
   ],
-  sourceUrl:
-    'https://www.canada.ca/en/immigration-refugees-citizenship/services/canadian-passports/photos.html',
+  sourceUrl: 'https://www.canada.ca/en/immigration-refugees-citizenship/services/canadian-passports/photos.html',
   related: { specId: 'ca-visa', prompt: 'Applying for a Canadian visitor visa instead? That uses 35 × 45 mm photos.' },
 }
 
@@ -348,7 +345,8 @@ const CHINA_COMMON = {
   backgroundMinLuminance: 222,
   glasses: 'allowed',
   expression: 'neutral',
-  editingPolicy: 'China’s requirements ask for a white or near-white background and natural skin tones, and don’t allow damage or impurities in the photo.',
+  editingPolicy:
+    'China’s requirements ask for a white or near-white background and natural skin tones, and don’t allow damage or impurities in the photo.',
   defaultPrintSizeId: '4x6',
   attestations: [
     RECENT,
@@ -410,7 +408,16 @@ export const CHINA_VISA_UPLOAD: PhotoSpec = {
   related: { specId: 'cn-visa', prompt: 'Need the printed photo for the application form too (33 × 48 mm)?' },
 }
 
-export const PHOTO_SPECS: PhotoSpec[] = [US_PASSPORT, INDIA_2X2, INDIA_ONLINE, INTL_35X45, CANADA_50X70, CANADA_VISA, CHINA_VISA, CHINA_VISA_UPLOAD]
+export const PHOTO_SPECS: PhotoSpec[] = [
+  US_PASSPORT,
+  INDIA_2X2,
+  INDIA_ONLINE,
+  INTL_35X45,
+  CANADA_50X70,
+  CANADA_VISA,
+  CHINA_VISA,
+  CHINA_VISA_UPLOAD,
+]
 
 function round2(v: number): number {
   return Math.round(v * 100) / 100
@@ -436,6 +443,7 @@ function formatInches(mm: number): string {
   const inches = mm / 25.4
   const whole = Math.floor(inches + 1e-6)
   const frac = inches - whole
+  // prettier-ignore
   const fractions: [number, string][] = [
     [0, ''], [1 / 8, '⅛'], [1 / 4, '¼'], [1 / 3, '⅓'], [3 / 8, '⅜'], [1 / 2, '½'],
     [5 / 8, '⅝'], [2 / 3, '⅔'], [3 / 4, '¾'], [7 / 8, '⅞'],

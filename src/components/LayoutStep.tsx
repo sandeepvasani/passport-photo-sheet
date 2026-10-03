@@ -72,15 +72,22 @@ export function LayoutStep({ spec, print, onPrint, mode, onMode, cutGuides, onCu
         ))}
         {print.unit === 'cm' && (
           <p className="muted small">
-            Labs don’t all print metric sizes identically (some make “10 × 15” as 4 × 6 in). Measure one photo with a ruler after printing, or
-            pick the matching inch size if your lab lists one.
+            Labs don’t all print metric sizes identically (some make “10 × 15” as 4 × 6 in). Measure one photo with a ruler after printing,
+            or pick the matching inch size if your lab lists one.
           </p>
         )}
 
         <h3>Layout</h3>
         <div className="segmented" role="radiogroup" aria-label="Layout">
           {MODES.map((m) => (
-            <button key={m.id} type="button" role="radio" aria-checked={mode === m.id} className={mode === m.id ? 'is-selected' : ''} onClick={() => onMode(m.id)}>
+            <button
+              key={m.id}
+              type="button"
+              role="radio"
+              aria-checked={mode === m.id}
+              className={mode === m.id ? 'is-selected' : ''}
+              onClick={() => onMode(m.id)}
+            >
               {m.label}
             </button>
           ))}

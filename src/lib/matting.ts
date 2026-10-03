@@ -89,7 +89,10 @@ export function guidedFilter(I: RGBPlanes, p: Float32Array, w: number, h: number
   const aB = new Float32Array(n)
   const bb = new Float32Array(n)
   for (let i = 0; i < n; i++) {
-    const r0 = mR[i], g0 = mG[i], b0 = mB[i], p0 = mP[i]
+    const r0 = mR[i],
+      g0 = mG[i],
+      b0 = mB[i],
+      p0 = mP[i]
     const cR = mRP[i] - r0 * p0
     const cG = mGP[i] - g0 * p0
     const cB = mBP[i] - b0 * p0

@@ -40,13 +40,7 @@ export function StatusIcon({ status }: { status: CheckStatus }) {
   )
 }
 
-export function CheckList({
-  results,
-  onFix,
-}: {
-  results: CheckResult[]
-  onFix?: (r: CheckResult) => void
-}) {
+export function CheckList({ results, onFix }: { results: CheckResult[]; onFix?: (r: CheckResult) => void }) {
   return (
     <ul className="checks">
       {results.map((r) => (

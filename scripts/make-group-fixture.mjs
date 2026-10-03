@@ -5,7 +5,9 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { chromium } from 'playwright'
 
-const people = ['portrait.jpg', 'glasses-thin.jpg', 'nasa2.jpg', 'nasa3.jpg'].map((f) => readFileSync(`test-images/${f}`).toString('base64'))
+const people = ['portrait.jpg', 'glasses-thin.jpg', 'nasa2.jpg', 'nasa3.jpg'].map((f) =>
+  readFileSync(`test-images/${f}`).toString('base64'),
+)
 const browser = await chromium.launch({ channel: 'chrome' })
 const page = await browser.newPage()
 const bytes = await page.evaluate(async (people) => {

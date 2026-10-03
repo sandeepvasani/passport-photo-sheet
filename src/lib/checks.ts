@@ -50,7 +50,9 @@ function whiteClothingFraction(photo: RenderedPhoto, data: Uint8ClampedArray, fr
     for (let x = 0; x < photo.width; x++) {
       const i = y * photo.width + x
       if (photo.alpha[i] < 0.9) continue
-      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2]
+      const r = data[i * 4],
+        g = data[i * 4 + 1],
+        b = data[i * 4 + 2]
       total++
       if (lum(r, g, b) > 205 && Math.max(r, g, b) - Math.min(r, g, b) < 25) white++
     }
@@ -156,7 +158,7 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
   const tilt = Math.abs(m.tiltDeg)
   // How far the head leans in the original photo; straightening it rotates the shoulders instead.
   const angle = (eyeLineAngle(markers) * 180) / Math.PI
-  const originalTilt = Math.abs(((angle + 90) % 180 + 180) % 180 - 90)
+  const originalTilt = Math.abs(((((angle + 90) % 180) + 180) % 180) - 90)
   out.push(
     tilt > 3
       ? { id: 'level', label: 'Head level', status: tilt <= 6 ? 'warn' : 'fail', detail: `Eyes tilted ${tilt.toFixed(1)}°` }
@@ -173,7 +175,8 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
   const uncovered = uncoveredFraction(crop, spec, image.width, image.height)
   if (uncovered > 0.002) {
     const pct = Math.max(1, Math.round(uncovered * 100))
-    const tooClose = 'This usually means the photo was taken too close, which is common with selfies. Retake it from about 4 ft (1.2 m) away, or ask someone else to take it.'
+    const tooClose =
+      'This usually means the photo was taken too close, which is common with selfies. Retake it from about 4 ft (1.2 m) away, or ask someone else to take it.'
     out.push({
       id: 'coverage',
       label: 'Photo fills the frame',
@@ -187,15 +190,16 @@ export function geometryChecks(spec: PhotoSpec, markers: Markers, crop: Crop, im
 
   const dpi = crop.pxPerMm * 25.4
   // Upload-only photos are never printed, so only the upload resolution matters.
-  if (!spec.digital?.uploadOnly) out.push({
-    id: 'resolution',
-    label: 'Print resolution',
-    status: dpi >= 290 ? 'pass' : dpi >= 180 ? 'warn' : 'fail',
-    detail:
-      dpi >= 290
-        ? `${Math.round(dpi)} pixels per inch`
-        : `Only ${Math.round(dpi)} pixels per inch (300 recommended) — the print may look soft. Use a higher-resolution photo or move closer to the camera.`,
-  })
+  if (!spec.digital?.uploadOnly)
+    out.push({
+      id: 'resolution',
+      label: 'Print resolution',
+      status: dpi >= 290 ? 'pass' : dpi >= 180 ? 'warn' : 'fail',
+      detail:
+        dpi >= 290
+          ? `${Math.round(dpi)} pixels per inch`
+          : `Only ${Math.round(dpi)} pixels per inch (300 recommended) — the print may look soft. Use a higher-resolution photo or move closer to the camera.`,
+    })
   if (spec.digital) {
     // Pixels of the original that land inside the frame, against what the upload needs.
     const { widthPx, heightPx } = spec.digital
@@ -229,15 +233,21 @@ function facePixels(photo: RenderedPhoto, data: Uint8ClampedArray, pts: Point[])
   const y0 = Math.max(0, Math.floor(Math.min(...ys)))
   const y1 = Math.min(photo.height - 1, Math.ceil(Math.max(...ys)))
   const out: FacePixels = { lum: [], chroma: [], rgb: [0, 0, 0] }
-  let sr = 0, sg = 0, sb = 0
+  let sr = 0,
+    sg = 0,
+    sb = 0
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
       const i = y * photo.width + x
       if (photo.alpha[i] < 0.9) continue
-      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2]
+      const r = data[i * 4],
+        g = data[i * 4 + 1],
+        b = data[i * 4 + 2]
       out.lum.push(lum(r, g, b))
       out.chroma.push(Math.max(r, g, b) - Math.min(r, g, b))
-      sr += r; sg += g; sb += b
+      sr += r
+      sg += g
+      sb += b
     }
   }
   const n = Math.max(1, out.lum.length)
@@ -269,26 +279,42 @@ function sharpness(photo: RenderedPhoto, data: Uint8ClampedArray, x0: number, y0
 }
 
 /** Checks that the background (pixels outside the person matte) is plain, light and even. */
-export function backgroundCheck(
-  photo: RenderedPhoto,
-  data: Uint8ClampedArray,
-  spec: PhotoSpec,
-  bg: BackgroundSettings,
-): CheckResult {
+export function backgroundCheck(photo: RenderedPhoto, data: Uint8ClampedArray, spec: PhotoSpec, bg: BackgroundSettings): CheckResult {
   const label = 'Plain light background'
   if (bg.mode === 'replace') {
     return { id: 'background', label, status: 'pass', detail: 'Background replaced with a plain colour' }
   }
-  let n = 0, sr = 0, sg = 0, sb = 0, sl = 0, sl2 = 0
-  let leftSum = 0, leftN = 0, rightSum = 0, rightN = 0
+  let n = 0,
+    sr = 0,
+    sg = 0,
+    sb = 0,
+    sl = 0,
+    sl2 = 0
+  let leftSum = 0,
+    leftN = 0,
+    rightSum = 0,
+    rightN = 0
   for (let y = 0; y < photo.height; y++) {
     for (let x = 0; x < photo.width; x++) {
       const i = y * photo.width + x
       if (photo.alpha[i] > 0.05) continue
-      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2]
+      const r = data[i * 4],
+        g = data[i * 4 + 1],
+        b = data[i * 4 + 2]
       const l = lum(r, g, b)
-      n++; sr += r; sg += g; sb += b; sl += l; sl2 += l * l
-      if (x < photo.width / 2) { leftSum += l; leftN++ } else { rightSum += l; rightN++ }
+      n++
+      sr += r
+      sg += g
+      sb += b
+      sl += l
+      sl2 += l * l
+      if (x < photo.width / 2) {
+        leftSum += l
+        leftN++
+      } else {
+        rightSum += l
+        rightN++
+      }
     }
   }
   if (n < photo.width * photo.height * 0.05) {
@@ -393,7 +419,7 @@ const SIDE_BANDS = [
   ['jaw', 'jaw'],
 ] as const
 
-const known = <T,>(v: (T | null)[]) => v.filter((x): x is T => x !== null)
+const known = <T>(v: (T | null)[]) => v.filter((x): x is T => x !== null)
 const median = (v: number[]) => [...v].sort((p, q) => p - q)[v.length >> 1]
 const listing = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`)
 
@@ -487,7 +513,9 @@ export function lightingCheck(lighting: LightingAnalysis | null): CheckResult | 
       id: 'shadows',
       label: 'Even lighting on face',
       status: 'pass',
-      detail: beard ? `No strong shadows found. ${beardNote}` : 'No strong shadows on the forehead, around the eyes, on the cheeks or on the chin',
+      detail: beard
+        ? `No strong shadows found. ${beardNote}`
+        : 'No strong shadows on the forehead, around the eyes, on the cheeks or on the chin',
     }
   }
   const notes = [`Shadow found ${listing(where)}.`, ...advice, ...(beard ? [beardNote] : [])]
@@ -532,7 +560,10 @@ export function expressionCheck(
 
   const issues: string[] = []
   if (neutral && smile >= SMILE_LIMIT) issues.push('You’re smiling. This photo needs a neutral expression, so no smile.')
-  if (lipsApart) issues.push(neutral ? 'Your lips look parted. Keep your mouth closed.' : 'Your lips look parted. You can smile, but keep your mouth closed.')
+  if (lipsApart)
+    issues.push(
+      neutral ? 'Your lips look parted. Keep your mouth closed.' : 'Your lips look parted. You can smile, but keep your mouth closed.',
+    )
   if (scores && scores !== 'pending') {
     if (scores.anger > EXPRESSION_LIMIT) issues.push('You look like you’re frowning. Relax your forehead and eyebrows.')
     if (scores.sad > SAD_LIMIT) issues.push('You look sad or upset. Relax your face, with the corners of your mouth level.')
@@ -551,7 +582,12 @@ export function expressionCheck(
     return { id: 'expression', label, status: 'pending', detail: [...issues, checking].join(' ') }
   }
   if (issues.length) return { id: 'expression', label, status: 'warn', detail: issues.join(' ') }
-  return { id: 'expression', label, status: 'pass', detail: neutral ? 'Expression looks neutral' : 'Expression looks natural, mouth closed' }
+  return {
+    id: 'expression',
+    label,
+    status: 'pass',
+    detail: neutral ? 'Expression looks neutral' : 'Expression looks natural, mouth closed',
+  }
 }
 
 /**
@@ -626,7 +662,12 @@ export function faceInFrame(face: DetectedFace, crop: Crop, spec: PhotoSpec): bo
  */
 export function faceCountCheck(analysis: FaceAnalysis, crop: Crop, spec: PhotoSpec): CheckResult {
   if (analysis.faceCount === 0) {
-    return { id: 'face', label: 'Face detected', status: 'fail', detail: 'No face could be detected. Use a clear, front-facing photo with good lighting.' }
+    return {
+      id: 'face',
+      label: 'Face detected',
+      status: 'fail',
+      detail: 'No face could be detected. Use a clear, front-facing photo with good lighting.',
+    }
   }
   if (analysis.faceCount === 1) return { id: 'face', label: 'One person', status: 'pass', detail: 'Exactly one face found' }
   const others = analysis.faces.filter((_, i) => i !== analysis.subject)
@@ -635,7 +676,8 @@ export function faceCountCheck(analysis: FaceAnalysis, crop: Crop, spec: PhotoSp
       id: 'face',
       label: 'Only one person in the frame',
       status: 'fail',
-      detail: 'Another person’s face is inside the photo frame. Zoom in or move the photo so only you are in it, or retake the photo alone.',
+      detail:
+        'Another person’s face is inside the photo frame. Zoom in or move the photo so only you are in it, or retake the photo alone.',
     }
   }
   return {
@@ -661,7 +703,8 @@ export function runChecks(input: CheckInput): CheckResult[] {
       id: 'crown-edge',
       label: 'Top of head visible',
       status: 'warn',
-      detail: 'The hair touches the top edge of your original photo, so the head size may be underestimated. Retake with more space above the head.',
+      detail:
+        'The hair touches the top edge of your original photo, so the head size may be underestimated. Retake with more space above the head.',
     })
   }
 
@@ -728,7 +771,11 @@ export function runChecks(input: CheckInput): CheckResult[] {
         id: 'exposure',
         label: 'Face well exposed',
         status: exposureOk ? 'pass' : 'warn',
-        detail: exposureOk ? 'Exposure looks good' : bright >= 0.05 ? 'Parts of the face are overexposed (washed out).' : 'The face is too dark — add more light.',
+        detail: exposureOk
+          ? 'Exposure looks good'
+          : bright >= 0.05
+            ? 'Parts of the face are overexposed (washed out).'
+            : 'The face is too dark — add more light.',
       })
 
       const lighting = lightingCheck(analysis.lighting)
@@ -738,14 +785,15 @@ export function runChecks(input: CheckInput): CheckResult[] {
       const [mr, mg, mb] = face.rgb
       const tinted = mb > mr * 0.85 || mg > mr * 0.95
       // A black-and-white photo has no skin colour to judge (the colour check covers it).
-      if (isColor) results.push({
-        id: 'skin-tone',
-        label: 'Natural skin tones',
-        status: tinted ? 'warn' : 'pass',
-        detail: tinted
-          ? 'Skin tones look tinted (for example bluish or greenish). Check the camera’s white balance or the lighting and retake.'
-          : 'Colours look natural',
-      })
+      if (isColor)
+        results.push({
+          id: 'skin-tone',
+          label: 'Natural skin tones',
+          status: tinted ? 'warn' : 'pass',
+          detail: tinted
+            ? 'Skin tones look tinted (for example bluish or greenish). Check the camera’s white balance or the lighting and retake.'
+            : 'Colours look natural',
+        })
 
       const redEye = [LM_IRIS_A, LM_IRIS_B].some((c) => redPupilFraction(photo, data, lms, c) > 0.2)
       results.push({

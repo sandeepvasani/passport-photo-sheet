@@ -30,7 +30,16 @@ page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && errors.push(m.text()))
 
 await page.goto(url)
-const specLabel = { 'us-2x2': 'US Passport / Visa', 'in-2x2': 'India Visa / OCI', 'in-online': 'India Passport \\(Passport Seva\\)', 'intl-35x45': '35 × 45 mm Passport', 'ca-50x70': 'Canada Passport', 'ca-visa': 'Canada Visa', 'cn-visa': 'China Visa(?! Upload)', 'cn-visa-upload': 'China Visa Upload' }[specId]
+const specLabel = {
+  'us-2x2': 'US Passport / Visa',
+  'in-2x2': 'India Visa / OCI',
+  'in-online': 'India Passport \\(Passport Seva\\)',
+  'intl-35x45': '35 × 45 mm Passport',
+  'ca-50x70': 'Canada Passport',
+  'ca-visa': 'Canada Visa',
+  'cn-visa': 'China Visa(?! Upload)',
+  'cn-visa-upload': 'China Visa Upload',
+}[specId]
 await page.getByRole('radio', { name: new RegExp(specLabel.replace(/[/×]/g, '.')) }).click()
 await page.screenshot({ path: join(out, '1-upload.png') })
 
@@ -109,7 +118,12 @@ console.log('download enabled after confirming:', await photoButton.isEnabled())
 
 if (await photoButton.isEnabled()) {
   // Upload-only types have no print sheet.
-  const buttons = (await sheetButton.count()) ? [[sheetButton, 'sheet.jpg'], [photoButton, 'photo.jpg']] : [[photoButton, 'photo.jpg']]
+  const buttons = (await sheetButton.count())
+    ? [
+        [sheetButton, 'sheet.jpg'],
+        [photoButton, 'photo.jpg'],
+      ]
+    : [[photoButton, 'photo.jpg']]
   for (const [button, file] of buttons) {
     const [download] = await Promise.all([page.waitForEvent('download'), button.click()])
     await download.saveAs(join(out, file))

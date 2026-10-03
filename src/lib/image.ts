@@ -147,8 +147,24 @@ export function setJpegDpi(bytes: Uint8Array, dpi: number): Uint8Array {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return bytes
   // No JFIF segment: insert one right after the SOI marker.
   const app0 = new Uint8Array([
-    0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x01,
-    dpi >> 8, dpi & 0xff, dpi >> 8, dpi & 0xff, 0x00, 0x00,
+    0xff,
+    0xe0,
+    0x00,
+    0x10,
+    0x4a,
+    0x46,
+    0x49,
+    0x46,
+    0x00,
+    0x01,
+    0x01,
+    0x01,
+    dpi >> 8,
+    dpi & 0xff,
+    dpi >> 8,
+    dpi & 0xff,
+    0x00,
+    0x00,
   ])
   const out = new Uint8Array(bytes.length + app0.length)
   out.set(bytes.subarray(0, 2), 0)

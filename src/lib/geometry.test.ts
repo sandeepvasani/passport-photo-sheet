@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { CANADA_50X70, CHINA_VISA, CHINA_VISA_UPLOAD, INDIA_2X2, INTL_35X45, PHOTO_SPECS, US_PASSPORT, formatRange } from '../config/photoSpecs'
-import { autoFit, frameToSource, measure, sourceToFrame, sourceToOutputTransform, transformCropAbout, uncoveredFraction, type Markers } from './geometry'
+import {
+  CANADA_50X70,
+  CHINA_VISA,
+  CHINA_VISA_UPLOAD,
+  INDIA_2X2,
+  INTL_35X45,
+  PHOTO_SPECS,
+  US_PASSPORT,
+  formatRange,
+} from '../config/photoSpecs'
+import {
+  autoFit,
+  frameToSource,
+  measure,
+  sourceToFrame,
+  sourceToOutputTransform,
+  transformCropAbout,
+  uncoveredFraction,
+  type Markers,
+} from './geometry'
 
 /** A face in a 3000×4000 photo, head tilted by `tiltDeg`. */
 function face(tiltDeg = 0, headPx = 1200, crownFraction = 0.5): Markers {

@@ -109,7 +109,10 @@ await scenario('Fix buttons open the step that fixes the problem, scrolled to th
   expect((await scrollY(page)) === 0, `not scrolled to the top after Fix (scrollY ${await scrollY(page)})`)
 
   // An expression needs a new photo.
-  await page.getByRole('button', { name: /Check & download/ }).first().click()
+  await page
+    .getByRole('button', { name: /Check & download/ })
+    .first()
+    .click()
   await page.getByRole('heading', { name: 'Requirement check' }).waitFor()
   const expression = page.locator('li.check', { hasText: 'Neutral expression' })
   expect(await expression.count(), 'no expression warning to try')
@@ -182,7 +185,10 @@ await scenario('When the hair-detail model fails to load, "Try again" loads it',
   if (!(await retry.count())) return
 
   await retry.click()
-  await page.locator('.inline-status').waitFor({ timeout: 5000 }).catch(() => {})
+  await page
+    .locator('.inline-status')
+    .waitFor({ timeout: 5000 })
+    .catch(() => {})
   await page.locator('.inline-status').waitFor({ state: 'detached', timeout: 120_000 })
   await page.waitForTimeout(500)
   expect((await retry.count()) === 0, '"Try again" still shown once the model could load')
@@ -237,7 +243,10 @@ await scenario('A drop while a photo is processing is ignored, and dropping a ph
   expect(errors.length === 0, `the photo dropped while busy was used: ${errors.join(' ')}`)
 
   await dropFile(page, 'two-people.jpg')
-  await page.locator('.subject-picker').waitFor({ timeout: 120_000 }).catch(() => {})
+  await page
+    .locator('.subject-picker')
+    .waitFor({ timeout: 120_000 })
+    .catch(() => {})
   expect(await page.locator('.subject-picker').isVisible(), 'dropping a photo did nothing')
 })
 
@@ -269,7 +278,10 @@ await scenario('Cut-line wording follows the cut-lines setting, and warnings are
   const helpOn = await page.locator('.print-help').innerText()
   expect(helpOn.includes('cut along the grey lines'), `instructions with cut lines: ${helpOn}`)
   const labelOn = await sheetLabel()
-  expect(labelOn === '← should measure exactly 1 inch  ·  India Visa / OCI 2 × 2 in  ·  cut along the grey lines', `sheet label with cut lines: ${labelOn}`)
+  expect(
+    labelOn === '← should measure exactly 1 inch  ·  India Visa / OCI 2 × 2 in  ·  cut along the grey lines',
+    `sheet label with cut lines: ${labelOn}`,
+  )
 })
 
 /** Drags a file over an element and drops it; whether the page stopped the browser opening it, for each event. */
@@ -307,12 +319,16 @@ await scenario('Upload-only photo types don’t render a print sheet', async (pa
   expect(!(await sheetDrawn()), 'a print sheet was drawn for an upload-only photo')
   await confirmAll(page)
   for (const box of ['.checkbox--warn input', '.checkbox--fail input']) if (await page.locator(box).count()) await page.locator(box).check()
-  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 10_000 }), page.getByRole('button', { name: /online upload/ }).click()])
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 10_000 }),
+    page.getByRole('button', { name: /online upload/ }).click(),
+  ])
   expect(download.suggestedFilename() === 'passport-photo-cn-visa-upload-420x560.jpg', `saved as ${download.suggestedFilename()}`)
 })
 
 await scenario('Each new step moves focus to its heading', async (page, expect) => {
-  const focused = () => page.evaluate(() => (document.activeElement?.tagName === 'H2' ? document.activeElement.textContent : document.activeElement?.tagName))
+  const focused = () =>
+    page.evaluate(() => (document.activeElement?.tagName === 'H2' ? document.activeElement.textContent : document.activeElement?.tagName))
   expect((await focused()) === 'BODY', `focus moved on page load (to ${await focused()})`)
   await upload(page, 'portrait.jpg')
   expect((await focused()) === 'Crop & position', `after upload, focus is on ${await focused()}`)
@@ -332,7 +348,11 @@ await scenario('Check results name their status for screen readers', async (page
   await upload(page, 'portrait.jpg')
   await toCheck(page)
   const list = page.locator('.checks').first()
-  for (const [status, name] of [['pass', 'Passed'], ['warn', 'Warning'], ['fail', 'Failed']]) {
+  for (const [status, name] of [
+    ['pass', 'Passed'],
+    ['warn', 'Warning'],
+    ['fail', 'Failed'],
+  ]) {
     const rows = await list.locator(`li.check--${status}`).count()
     const icons = await list.getByRole('img', { name, exact: true }).count()
     expect(rows === icons, `${rows} ${status} checks but ${icons} icons named "${name}"`)
@@ -397,7 +417,8 @@ await scenario('The Upload step lists China’s face width and space above the h
 
 /** Reads the Crop step's head size (mm) and eye tilt (degrees). */
 const headSize = async (page) => parseFloat(await page.locator('.slider', { hasText: 'Head size' }).locator('output').innerText())
-const eyeTilt = async (page) => parseFloat((await page.locator('li.check', { hasText: 'Head level' }).innerText()).match(/tilted (-?[\d.]+)°/)?.[1])
+const eyeTilt = async (page) =>
+  parseFloat((await page.locator('li.check', { hasText: 'Head level' }).innerText()).match(/tilted (-?[\d.]+)°/)?.[1])
 
 await scenario('Markers can be picked and moved with the keyboard', async (page, expect) => {
   await pickSpec(page, /35 . 45 mm Passport/)
@@ -496,7 +517,10 @@ await scenario('With Data Saver on, the expression model isn’t downloaded and 
   // Without Data Saver (in a separate browser context, so nothing is cached), the model is fetched.
   const control = await browser.newPage({ viewport: { width: 1280, height: 700 } })
   await control.goto(url)
-  const fetched = control.waitForRequest(model, { timeout: 120_000 }).then(() => true, () => false)
+  const fetched = control.waitForRequest(model, { timeout: 120_000 }).then(
+    () => true,
+    () => false,
+  )
   await upload(control, 'portrait.jpg')
   expect(await fetched, 'the expression model wasn’t fetched without Data Saver either')
   await control.close()

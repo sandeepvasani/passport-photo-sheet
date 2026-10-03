@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { CANADA_50X70, CHINA_VISA, CHINA_VISA_UPLOAD, INDIA_2X2, INTL_35X45, PHOTO_SPECS, US_PASSPORT, type PhotoSpec } from '../config/photoSpecs'
+import {
+  CANADA_50X70,
+  CHINA_VISA,
+  CHINA_VISA_UPLOAD,
+  INDIA_2X2,
+  INTL_35X45,
+  PHOTO_SPECS,
+  US_PASSPORT,
+  type PhotoSpec,
+} from '../config/photoSpecs'
 import {
   backgroundCheck,
   expressionCheck,
@@ -49,8 +58,7 @@ describe('eyewearChecks', () => {
 
 describe('faceCountCheck', () => {
   const face = (x: number): DetectedFace => ({ landmarks: [], blendshapes: {}, area: 1, box: { x, y: 400, w: 300, h: 360 } })
-  const analysis = (faces: DetectedFace[]): FaceAnalysis =>
-    ({ faceCount: faces.length, faces, subject: 0 }) as unknown as FaceAnalysis
+  const analysis = (faces: DetectedFace[]): FaceAnalysis => ({ faceCount: faces.length, faces, subject: 0 }) as unknown as FaceAnalysis
   // Frame centred on the first face: 50.8 mm at 20 px/mm is ~1016 px wide.
   const crop: Crop = { cx: 1150, cy: 600, angle: 0, pxPerMm: 20 }
 
@@ -76,6 +84,8 @@ const light = (forehead: Row, eyes: Row, cheeks: Row, jaw: Row): LightingAnalysi
   const side = ([left, centre, right]: Row) => ({ left: region(left), centre: region(centre), right: region(right) })
   return { forehead: side(forehead), eyes: side(eyes), cheeks: side(cheeks), jaw: side(jaw) }
 }
+// One photo per line reads best as a table.
+// prettier-ignore
 const MEASURED = {
   portrait: light([[194, 0.016], [184, 0.014], [174, 0.019]], [[149, 0.073], [156, 0.028], [117, 0.095]], [[168, 0.038], [171, 0.018], [150, 0.045]], [[168, 0.032], [153, 0.026], [138, 0.039]]),
   nasa1: light([[190, 0.009], [187, 0.009], [138, 0.011]], [[158, 0.027], [167, 0.012], [109, 0.035]], [[166, 0.013], [163, 0.014], [116, 0.015]], [[162, 0.012], [161, 0.013], [111, 0.017]]),
@@ -157,7 +167,24 @@ describe('lightingCheck', () => {
   })
 
   it('skips regions it could not measure', () => {
-    const covered = light([null, null, null], [[149, 0.07], [156, 0.03], [117, 0.09]], [[168, 0.04], [171, 0.02], [150, 0.045]], [[168, 0.03], [153, 0.026], [138, 0.04]])
+    const covered = light(
+      [null, null, null],
+      [
+        [149, 0.07],
+        [156, 0.03],
+        [117, 0.09],
+      ],
+      [
+        [168, 0.04],
+        [171, 0.02],
+        [150, 0.045],
+      ],
+      [
+        [168, 0.03],
+        [153, 0.026],
+        [138, 0.04],
+      ],
+    )
     expect(lightingCheck(covered)?.status).toBe('pass')
     expect(lightingCheck(light([null, null, null], [null, null, null], [null, null, null], [null, null, null]))).toBeNull()
     expect(lightingCheck(null)).toBeNull()
@@ -228,7 +255,14 @@ describe('expressionCheck', () => {
 describe('gaze', () => {
   // Two eyes 30 px wide, irises at `shift` px from their centres.
   const eyes = (shift: number) =>
-    mesh({ 33: { x: 0, y: 0 }, 133: { x: 30, y: 0 }, 468: { x: 15 + shift, y: 0 }, 362: { x: 60, y: 0 }, 263: { x: 90, y: 0 }, 473: { x: 75 + shift, y: 0 } })
+    mesh({
+      33: { x: 0, y: 0 },
+      133: { x: 30, y: 0 },
+      468: { x: 15 + shift, y: 0 },
+      362: { x: 60, y: 0 },
+      263: { x: 90, y: 0 },
+      473: { x: 75 + shift, y: 0 },
+    })
 
   it('measures how far the irises sit from the middle of the eyes', () => {
     expect(gazeOffset(eyes(0))).toBeCloseTo(0, 6)
@@ -284,7 +318,10 @@ describe('backgroundCheck', () => {
   })
 
   it('warns when too little background shows to judge', () => {
-    expect(check(photoOf([250, 250, 250], undefined, () => true))).toMatchObject({ status: 'warn', detail: expect.stringContaining('Too little') })
+    expect(check(photoOf([250, 250, 250], undefined, () => true))).toMatchObject({
+      status: 'warn',
+      detail: expect.stringContaining('Too little'),
+    })
   })
 
   it('passes a replaced background without measuring it', () => {
@@ -297,7 +334,10 @@ describe('geometryChecks', () => {
   /** A face in a 3000 × 4000 photo, `headPx` from crown to chin, tilted by `tiltDeg`. */
   function face(tiltDeg = 0, headPx = 1200): Markers {
     const t = (tiltDeg * Math.PI) / 180
-    const at = (dx: number, dy: number) => ({ x: 1500 + dx * Math.cos(t) - dy * Math.sin(t), y: 1600 + dx * Math.sin(t) + dy * Math.cos(t) })
+    const at = (dx: number, dy: number) => ({
+      x: 1500 + dx * Math.cos(t) - dy * Math.sin(t),
+      y: 1600 + dx * Math.sin(t) + dy * Math.cos(t),
+    })
     const k = headPx / 1200
     return { eyeLeft: at(-150 * k, 0), eyeRight: at(150 * k, 0), crown: at(0, -600 * k), chin: at(0, 600 * k), faceWidthPx: 800 * k }
   }
@@ -317,7 +357,10 @@ describe('geometryChecks', () => {
   })
 
   it('fails a head outside the size range, and only warns where the size is a guideline', () => {
-    for (const [spec, status] of [[US_PASSPORT, 'fail'], [CHINA_VISA_UPLOAD, 'warn']] as const) {
+    for (const [spec, status] of [
+      [US_PASSPORT, 'fail'],
+      [CHINA_VISA_UPLOAD, 'warn'],
+    ] as const) {
       const fit = autoFit(face(), spec, image)
       const small = transformCropAbout(fit, midpoint(face().eyeLeft, face().eyeRight), 0.75, 0)
       expect(run(spec, face(), small).head.status, spec.id).toBe(status)
@@ -361,7 +404,13 @@ describe('geometryChecks', () => {
   it('fails a frame that reaches past the photo, and only warns when the background is replaced', () => {
     // A photo too narrow for the 2 × 2 in frame around this head.
     const narrow = { width: 1800, height: 4000 } as LoadedImage
-    const m: Markers = { ...face(), eyeLeft: { x: 750, y: 1600 }, eyeRight: { x: 1050, y: 1600 }, crown: { x: 900, y: 1000 }, chin: { x: 900, y: 2200 } }
+    const m: Markers = {
+      ...face(),
+      eyeLeft: { x: 750, y: 1600 },
+      eyeRight: { x: 1050, y: 1600 },
+      crown: { x: 900, y: 1000 },
+      chin: { x: 900, y: 2200 },
+    }
     const crop = autoFit(m, US_PASSPORT)
     expect(run(US_PASSPORT, m, crop, narrow).coverage.status).toBe('fail')
     expect(run(US_PASSPORT, m, crop, narrow, { ...original, mode: 'replace' }).coverage).toMatchObject({

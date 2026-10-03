@@ -24,7 +24,9 @@ Everything runs on the user's device. Photos are never uploaded, and there are n
 ```bash
 npm install
 npm run dev        # copies the MediaPipe wasm and downloads models into public/, then starts Vite
-npm test           # unit tests (geometry, layout, matting, JPEG DPI)
+npm test           # unit tests (geometry, layout, checks, matting, JPEG files)
+npm run lint       # oxlint
+npm run format     # Prettier (CI checks it with npm run format:check)
 npm run build      # type-check and build static files to dist/
 ```
 
@@ -52,6 +54,7 @@ The repo deploys to GitHub Pages automatically: [`.github/workflows/deploy.yml`]
 ## Adding a country
 
 Append a `PhotoSpec` to `PHOTO_SPECS` in [`src/config/photoSpecs.ts`](src/config/photoSpecs.ts) with:
+
 - photo width and height
 - head-height range
 - either an eye-height range (enforced) or a top-margin guideline (warning only, unless marked required)

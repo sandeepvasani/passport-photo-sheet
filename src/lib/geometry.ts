@@ -77,13 +77,7 @@ export function frameToSource(q: Point, crop: Crop, spec: PhotoSpec): Point {
  * Transform that draws the source image so the frame lands at
  * (offsetX, offsetY) with `outPxPerMm` output pixels per millimetre.
  */
-export function sourceToOutputTransform(
-  crop: Crop,
-  spec: PhotoSpec,
-  outPxPerMm: number,
-  offsetX = 0,
-  offsetY = 0,
-): Affine {
+export function sourceToOutputTransform(crop: Crop, spec: PhotoSpec, outPxPerMm: number, offsetX = 0, offsetY = 0): Affine {
   const s = outPxPerMm / crop.pxPerMm
   const cos = Math.cos(crop.angle)
   const sin = Math.sin(crop.angle)
@@ -223,11 +217,7 @@ export function uncoveredFraction(crop: Crop, spec: PhotoSpec, imgW: number, img
   let outside = 0
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
-      const p = frameToSource(
-        { x: ((i + 0.5) / n) * spec.widthMm, y: ((j + 0.5) / n) * spec.heightMm },
-        crop,
-        spec,
-      )
+      const p = frameToSource({ x: ((i + 0.5) / n) * spec.widthMm, y: ((j + 0.5) / n) * spec.heightMm }, crop, spec)
       if (p.x < 0 || p.y < 0 || p.x > imgW || p.y > imgH) outside++
     }
   }

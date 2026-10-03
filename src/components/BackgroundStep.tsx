@@ -50,13 +50,26 @@ export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteSt
       <aside className="panel">
         <h2>Background</h2>
         <p className="muted">
-          {spec.label} photos need a plain {spec.backgrounds.map((b) => b.label.toLowerCase()).join(' or ')} background with no shadows or patterns.
+          {spec.label} photos need a plain {spec.backgrounds.map((b) => b.label.toLowerCase()).join(' or ')} background with no shadows or
+          patterns.
         </p>
         <div className="segmented" role="radiogroup" aria-label="Background">
-          <button type="button" role="radio" aria-checked={!replace} className={!replace ? 'is-selected' : ''} onClick={() => onBg({ ...bg, mode: 'original' })}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!replace}
+            className={!replace ? 'is-selected' : ''}
+            onClick={() => onBg({ ...bg, mode: 'original' })}
+          >
             Keep original
           </button>
-          <button type="button" role="radio" aria-checked={replace} className={replace ? 'is-selected' : ''} onClick={() => onBg({ ...bg, mode: 'replace' })}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={replace}
+            className={replace ? 'is-selected' : ''}
+            onClick={() => onBg({ ...bg, mode: 'replace' })}
+          >
             Replace background
           </button>
         </div>
@@ -65,8 +78,8 @@ export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteSt
 
         {originalFails && (
           <p className="alert alert--warn small">
-            Your background doesn’t meet the rules. The most reliable fix is to retake the photo against a plain white wall or sheet. You can replace
-            the background below, but read the warning first.
+            Your background doesn’t meet the rules. The most reliable fix is to retake the photo against a plain white wall or sheet. You
+            can replace the background below, but read the warning first.
           </p>
         )}
 
@@ -117,8 +130,8 @@ export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteSt
               onChange={(v) => onBg({ ...bg, expand: v })}
             />
             <p className="muted small">
-              Check the hair and shoulders in the result. If bits of the old background remain, tighten the outline. If hair is cut off, expand it.
-              The first time you replace a background, a 13 MB model is downloaded.
+              Check the hair and shoulders in the result. If bits of the old background remain, tighten the outline. If hair is cut off,
+              expand it. The first time you replace a background, a 13 MB model is downloaded.
             </p>
           </>
         )}

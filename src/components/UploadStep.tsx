@@ -93,7 +93,9 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
             <dt>Glasses</dt>
             <dd>
               {spec.glassesNote?.summary ??
-                { forbidden: 'Not allowed', discouraged: 'Avoid (often not allowed)', allowed: 'Allowed: clear lenses, no glare' }[spec.glasses]}
+                { forbidden: 'Not allowed', discouraged: 'Avoid (often not allowed)', allowed: 'Allowed: clear lenses, no glare' }[
+                  spec.glasses
+                ]}
             </dd>
           </div>
         </dl>
@@ -139,8 +141,8 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
               </div>
               <p className="muted small">JPEG, PNG or WebP. Your photo never leaves this device.</p>
               <p className="muted small mobile-only">
-                Selfies are usually too close to fit a passport frame. Prop the phone up about 4–5 ft (1.2–1.5 m) away and use the timer, or ask someone to
-                take it.
+                Selfies are usually too close to fit a passport frame. Prop the phone up about 4–5 ft (1.2–1.5 m) away and use the timer, or
+                ask someone to take it.
               </p>
             </>
           )}
@@ -192,11 +194,16 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
         <h2>Tips for a photo that passes</h2>
         <ul className="tips">
           <li>
-            Stand a few feet in front of a <strong>plain {spec.backgrounds.map((b) => b.label.toLowerCase()).join(' or ')} wall</strong> so you
-            don’t cast a shadow. No suitable wall? Hang a white sheet or blanket.
+            Stand a few feet in front of a <strong>plain {spec.backgrounds.map((b) => b.label.toLowerCase()).join(' or ')} wall</strong> so
+            you don’t cast a shadow. No suitable wall? Hang a white sheet or blanket.
           </li>
-          <li>Have someone else take the photo from <strong>4–5 ft (1.2–1.5 m) away</strong>, with the camera at eye level. Selfies distort the face.</li>
-          <li>Face a window or use soft, even light. <strong>No shadows</strong> on the face or behind you, and no flash (it causes red eye).</li>
+          <li>
+            Have someone else take the photo from <strong>4–5 ft (1.2–1.5 m) away</strong>, with the camera at eye level. Selfies distort
+            the face.
+          </li>
+          <li>
+            Face a window or use soft, even light. <strong>No shadows</strong> on the face or behind you, and no flash (it causes red eye).
+          </li>
           <li>
             Look straight at the camera with both eyes open and your <strong>mouth closed</strong>
             {spec.expression === 'smile-mouth-closed' ? '. A closed-mouth smile is fine.' : ' and a neutral expression.'}
