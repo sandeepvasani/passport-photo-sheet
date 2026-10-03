@@ -13,11 +13,10 @@ interface Props {
   matteStatus: 'idle' | 'loading' | 'error'
   onRetryMatte: () => void
   onNext: () => void
-  nextLabel: string
   onBack: () => void
 }
 
-export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteStatus, onRetryMatte, onNext, nextLabel, onBack }: Props) {
+export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteStatus, onRetryMatte, onNext, onBack }: Props) {
   const replace = bg.mode === 'replace'
   const originalFails = !replace && check?.status === 'fail'
   return (
@@ -141,7 +140,7 @@ export function BackgroundStep({ spec, bg, onBg, photo, original, check, matteSt
             ← Back
           </button>
           <button type="button" className="btn btn--primary" onClick={onNext}>
-            {nextLabel}
+            Next: Check →
           </button>
         </div>
       </aside>

@@ -99,16 +99,28 @@ async function upload(page, file) {
 
 async function toCheck(page) {
   await page.getByRole('button', { name: /Next: Background/ }).click()
-  const toLayout = page.getByRole('button', { name: /Next: Print layout/ })
-  if (await toLayout.count()) await toLayout.click()
   await page.getByRole('button', { name: /Next: Check/ }).click()
   await page.getByRole('heading', { name: 'Requirement check' }).waitFor()
   await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 180_000 })
 }
 
-/** Ticks every box on the Check step, so the download buttons are enabled. */
-async function confirmAll(page) {
+/** Ticks every box on the Check step, including the warnings and failures ones. */
+async function acceptAll(page) {
   for (const box of await page.locator('.attestations input[type=checkbox]').all()) await box.check()
+}
+
+const toDownloadButton = (page) => page.getByRole('button', { name: /^Next: (Print & d|D)ownload/ })
+
+/** From the Check step, ticks every box and goes on to the Download step. */
+async function checkToDownload(page) {
+  await acceptAll(page)
+  await toDownloadButton(page).click()
+  await page.getByRole('heading', { name: 'Download', exact: true }).waitFor()
+}
+
+async function toDownload(page) {
+  await toCheck(page)
+  await checkToDownload(page)
 }
 
 /** Makes canvas.toBlob give null, as browsers do when they can't spare the memory. */
@@ -149,8 +161,8 @@ await scenario('Fix buttons open the step that fixes the problem, scrolled to th
 
   // An expression needs a new photo.
   await page
-    .getByRole('button', { name: /Check & download/ })
-    .first()
+    .locator('.stepper')
+    .getByRole('button', { name: /Check$/ })
     .click()
   await page.getByRole('heading', { name: 'Requirement check' }).waitFor()
   const expression = page.locator('li.check', { hasText: 'Neutral expression' })
@@ -162,11 +174,44 @@ await scenario('Fix buttons open the step that fixes the problem, scrolled to th
   expect((await scrollY(page)) === 0, 'not scrolled to the top after the expression Fix')
 })
 
+await scenario('The Download step stays locked until the Check step is done', async (page, expect) => {
+  await upload(page, 'portrait.jpg')
+  // Straight to the last step through the step bar.
+  await page
+    .locator('.stepper')
+    .getByRole('button', { name: /Print & download$/ })
+    .click()
+  await page.getByRole('heading', { name: 'Download', exact: true }).waitFor()
+  const sheet = page.getByRole('button', { name: /print sheet/ })
+  expect(await page.locator('.download-gate').isVisible(), 'no note saying the check comes first')
+  expect(!(await sheet.isEnabled()), 'the sheet can be downloaded before the check')
+
+  await page.getByRole('button', { name: 'Go to Check' }).click()
+  await page.getByRole('heading', { name: 'Requirement check' }).waitFor()
+  await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 180_000 })
+  expect(!(await toDownloadButton(page).isEnabled()), '“Next” is enabled before anything is ticked')
+  await acceptAll(page)
+  expect(await toDownloadButton(page).isEnabled(), '“Next” is still disabled after ticking every box')
+  await toDownloadButton(page).click()
+  expect((await page.locator('.download-gate').count()) === 0, 'the note is still shown after the check')
+  expect(await sheet.isEnabled(), 'the sheet can’t be downloaded after the check')
+})
+
+await scenario('Problems that need a new photo show on the Crop step, before any more work goes into it', async (page, expect) => {
+  await upload(page, 'shadow-side.jpg')
+  const shadows = (list) => list.locator('li.check', { hasText: 'Even lighting on face' }).locator('.check__body')
+  const list = page.locator('.checks').first()
+  const early = (await shadows(list).count()) ? await shadows(list).innerText() : ''
+  expect(early.includes('Shadow found'), `no shadow warning on the Crop step: ${await list.innerText()}`)
+  // The final check says the same.
+  await toCheck(page)
+  const final = await shadows(page).innerText()
+  expect(final === early, `the Crop step says "${early}", the final check "${final}"`)
+})
+
 await scenario('A failed print download says why, and a later download clears it', async (page, expect) => {
   await upload(page, 'portrait.jpg')
-  await toCheck(page)
-  await confirmAll(page)
-  for (const box of ['.checkbox--warn input', '.checkbox--fail input']) if (await page.locator(box).count()) await page.locator(box).check()
+  await toDownload(page)
   const sheet = page.getByRole('button', { name: /print sheet/ })
   const photo = page.getByRole('button', { name: /single digital photo/ })
   const status = page.locator('.downloads [role=status]')
@@ -191,9 +236,7 @@ await scenario('A failed print download says why, and a later download clears it
 await scenario('A failed online-upload download says why; a working one shows the file size', async (page, expect) => {
   await pickSpec(page, /India Passport \(Passport Seva\)/)
   await upload(page, 'portrait.jpg')
-  await toCheck(page)
-  await confirmAll(page)
-  for (const box of ['.checkbox--warn input', '.checkbox--fail input']) if (await page.locator(box).count()) await page.locator(box).check()
+  await toDownload(page)
   const button = page.getByRole('button', { name: /online upload/ })
   const status = page.locator('.downloads [role=status]')
 
@@ -292,28 +335,24 @@ await scenario('A drop while a photo is processing is ignored, and dropping a ph
 await scenario('Cut-line wording follows the cut-lines setting, and warnings are counted in words', async (page, expect) => {
   await pickSpec(page, /India Visa \/ OCI/)
   await upload(page, 'glasses-glare.jpg')
-  await page.getByRole('button', { name: /Next: Background/ }).click()
-  await page.getByRole('button', { name: /Next: Print layout/ }).click()
-  // 2 × 2 in photos fill a 4 × 6 edge to edge, leaving no room for the scale bar; a 5 × 7 has room.
-  await page.getByRole('radio', { name: /5 × 7 in/ }).click()
-  const sheetLabel = () => page.evaluate(() => window.__texts.filter((t) => t.startsWith('← should')).at(-1))
-
-  await page.getByLabel('Draw thin grey cut lines').uncheck()
-  await page.getByRole('button', { name: /Next: Check/ }).click()
-  await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 180_000 })
-  const helpOff = await page.locator('.print-help').innerText()
-  expect(helpOff.includes('cut the photos apart') && !helpOff.includes('grey lines'), `instructions without cut lines: ${helpOff}`)
-  const labelOff = await sheetLabel()
-  expect(labelOff && !labelOff.includes('cut along'), `sheet label without cut lines: ${labelOff}`)
-
+  await toCheck(page)
   // This photo currently has one warning, which checks the singular.
   const warnings = await page.locator('li.check--warn').count()
   const pill = warnings ? await page.locator('.summary__pill--warn').innerText() : ''
   expect(!warnings || pill === `${warnings} warning${warnings === 1 ? '' : 's'}`, `"${pill}" for ${warnings} warnings`)
 
-  await page.getByRole('button', { name: '← Back' }).click()
+  await checkToDownload(page)
+  // 2 × 2 in photos fill a 4 × 6 edge to edge, leaving no room for the scale bar; a 5 × 7 has room.
+  await page.getByRole('radio', { name: /5 × 7 in/ }).click()
+  const sheetLabel = () => page.evaluate(() => window.__texts.filter((t) => t.startsWith('← should')).at(-1))
+
+  await page.getByLabel('Draw thin grey cut lines').uncheck()
+  const helpOff = await page.locator('.print-help').innerText()
+  expect(helpOff.includes('cut the photos apart') && !helpOff.includes('grey lines'), `instructions without cut lines: ${helpOff}`)
+  const labelOff = await sheetLabel()
+  expect(labelOff && !labelOff.includes('cut along'), `sheet label without cut lines: ${labelOff}`)
+
   await page.getByLabel('Draw thin grey cut lines').check()
-  await page.getByRole('button', { name: /Next: Check/ }).click()
   const helpOn = await page.locator('.print-help').innerText()
   expect(helpOn.includes('cut along the grey lines'), `instructions with cut lines: ${helpOn}`)
   const labelOn = await sheetLabel()
@@ -348,16 +387,15 @@ await scenario('Upload-only photo types don’t render a print sheet', async (pa
   // The printed China type does, which shows the sheet's label is a fair sign of a sheet.
   await pickSpec(page, /China Visa(?! Upload)/)
   await upload(page, 'portrait.jpg')
-  await toCheck(page)
+  await toDownload(page)
   expect(await sheetDrawn(), 'no sheet drawn for the printed China photo')
 
   await page.goto(url)
   await pickSpec(page, /China Visa Upload/)
   await upload(page, 'portrait.jpg')
-  await toCheck(page)
+  await toDownload(page)
   expect(!(await sheetDrawn()), 'a print sheet was drawn for an upload-only photo')
-  await confirmAll(page)
-  for (const box of ['.checkbox--warn input', '.checkbox--fail input']) if (await page.locator(box).count()) await page.locator(box).check()
+  expect((await page.getByRole('radio', { name: /4 × 6 in/ }).count()) === 0, 'print sizes offered for an upload-only photo')
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 10_000 }),
     page.getByRole('button', { name: /online upload/ }).click(),
@@ -371,16 +409,17 @@ await scenario('Each new step moves focus to its heading', async (page, expect) 
   expect((await focused()) === 'BODY', `focus moved on page load (to ${await focused()})`)
   await upload(page, 'portrait.jpg')
   expect((await focused()) === 'Crop & position', `after upload, focus is on ${await focused()}`)
-  for (const [button, heading] of [
-    [/Next: Background/, 'Background'],
-    [/Next: Print layout/, 'Print size'],
-    [/Next: Check/, 'Requirement check'],
-    ['← Back', 'Print size'],
-  ]) {
+  const next = async (button, heading) => {
     await page.getByRole('button', { name: button }).click()
     await page.waitForTimeout(100)
     expect((await focused()) === heading, `after "${button}", focus is on ${await focused()}, not "${heading}"`)
   }
+  await next(/Next: Background/, 'Background')
+  await next(/Next: Check/, 'Requirement check')
+  await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 180_000 })
+  await acceptAll(page)
+  await next(/Next: Print & download/, 'Print size')
+  await next('← Back', 'Requirement check')
 })
 
 await scenario('Check results name their status for screen readers', async (page, expect) => {
@@ -406,20 +445,19 @@ await scenario('With reduced motion, step changes jump to the top and the spinne
   const duration = await spinner.evaluate((el) => getComputedStyle(el).animationDuration)
   expect(duration === '2.4s', `spinner turns every ${duration}`)
   await page.getByRole('heading', { name: 'Crop & position' }).waitFor({ timeout: 120_000 })
-  // From the bottom of the Check step back to Print layout, which is still tall enough to scroll.
-  await toCheck(page)
+  // From the bottom of the Download step back to the Check step, which is tall enough to scroll.
+  await toDownload(page)
   const back = page.getByRole('button', { name: '← Back' })
   await back.evaluate((el) => el.scrollIntoView({ block: 'end' }))
   await back.click()
-  const layoutHeight = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
-  expect(layoutHeight > 0, 'the Print layout step is too short to show whether it scrolls')
+  const checkHeight = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight)
+  expect(checkHeight > 0, 'the Check step is too short to show whether it scrolls')
   expect((await scrollY(page)) === 0, `not at the top straight after the step change (scrollY ${await scrollY(page)})`)
 })
 
 await scenario('Sheet previews are a smaller copy, freed when the step changes; photo previews are full size', async (page, expect) => {
   await upload(page, 'portrait.jpg')
-  await page.getByRole('button', { name: /Next: Background/ }).click()
-  await page.getByRole('button', { name: /Next: Print layout/ }).click()
+  await toDownload(page)
   await page.getByRole('radio', { name: /8 × 10 in/ }).click()
   await page.waitForTimeout(500)
   const preview = await page.locator('.sheet-preview').elementHandle()
@@ -432,9 +470,9 @@ await scenario('Sheet previews are a smaller copy, freed when the step changes; 
   const box = await preview.boundingBox()
   expect(box && Math.abs(box.height - 0.72 * 700) < 2, `sheet preview shown ${box?.height} px tall, expected 504`)
 
-  await page.getByRole('button', { name: /Next: Check/ }).click()
+  await page.getByRole('button', { name: '← Back' }).click()
   await page.getByRole('heading', { name: 'Requirement check' }).waitFor()
-  expect((await preview.evaluate((c) => c.width)) === 0, 'the layout step’s preview was not freed')
+  expect((await preview.evaluate((c) => c.width)) === 0, 'the Download step’s preview was not freed')
   const photo = await page.locator('.final-previews .photo-frame').evaluate((c) => [c.width, c.height])
   expect(photo[0] === 600 && photo[1] === 600, `photo preview is ${photo.join(' × ')} px, expected the full 600 × 600`)
 })
@@ -571,7 +609,6 @@ await scenario('With Data Saver on, the expression model isn’t downloaded and 
   await pickSpec(page, /35 . 45 mm Passport/)
   await upload(page, 'portrait.jpg')
   await page.getByRole('button', { name: /Next: Background/ }).click()
-  await page.getByRole('button', { name: /Next: Print layout/ }).click()
   await page.getByRole('button', { name: /Next: Check/ }).click()
   await page.waitForTimeout(300)
   expect((await page.locator('.status-icon--pending').count()) === 0, 'a check is waiting for the expression model')
@@ -590,11 +627,6 @@ await scenario('Everyone in a group photo can be picked', async (page, expect) =
 
 const chromiumOnly = (reason) => engine !== 'chromium' && (console.log(`      (${reason}: skipped)`), true)
 const isChecked = async (page, name) => (await page.getByRole('radio', { name }).first().getAttribute('aria-checked')) === 'true'
-/** Ticks every box on the Check step, including the warnings and failures ones. */
-async function acceptAll(page) {
-  await confirmAll(page)
-  for (const box of ['.checkbox--warn input', '.checkbox--fail input']) if (await page.locator(box).count()) await page.locator(box).check()
-}
 
 await scenario('Replacing the background and adjusting its edges don’t freeze the page', async (page, expect) => {
   if (!(await page.evaluate(() => PerformanceObserver.supportedEntryTypes.includes('longtask')))) {
@@ -625,9 +657,8 @@ await scenario('If the edge-refinement worker can’t load, the photo is still m
   page.on('requestfailed', (r) => r.url().includes('refine.worker') && (failed = true))
   await page.route('**/refine.worker-*.js', (route) => route.abort())
   await upload(page, 'portrait.jpg')
-  await toCheck(page)
+  await toDownload(page)
   expect(failed, 'the worker wasn’t asked for')
-  await acceptAll(page)
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 30_000 }),
     page.getByRole('button', { name: /print sheet/ }).click(),
@@ -705,10 +736,10 @@ await scenario('After one visit, it works offline, background replacement includ
   await page.reload()
   await replaceBackground()
   expect((await page.locator('.alert--error').count()) === 0, `offline: ${await page.locator('.alert--error').allInnerTexts()}`)
-  await page.getByRole('button', { name: /Next: Print layout/ }).click()
   await page.getByRole('button', { name: /Next: Check/ }).click()
+  await page.getByRole('heading', { name: 'Requirement check' }).waitFor()
   await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 120_000 })
-  await acceptAll(page)
+  await checkToDownload(page)
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 30_000 }),
     page.getByRole('button', { name: /print sheet/ }).click(),
@@ -764,8 +795,7 @@ await scenario('A HEIC photo opens, through libheif where the browser can’t de
 await scenario('The photo type, print size and layout are remembered', async (page, expect) => {
   const layout = async () => {
     await upload(page, 'portrait.jpg')
-    await page.getByRole('button', { name: /Next: Background/ }).click()
-    await page.getByRole('button', { name: /Next: Print layout/ }).click()
+    await toDownload(page)
   }
   await pickSpec(page, /China Visa(?! Upload)/)
   await layout()
@@ -838,8 +868,7 @@ await scenario('Share offers the same file as the download, where the browser ca
   })
   await page.reload()
   await upload(page, 'portrait.jpg')
-  await toCheck(page)
-  await acceptAll(page)
+  await toDownload(page)
   const share = page.getByRole('button', { name: /^Share/ })
   await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.startsWith('Share') && !b.disabled))
   await share.click()
@@ -864,7 +893,7 @@ await scenario('Share offers the same file as the download, where the browser ca
   await plain.addInitScript(() => Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true }))
   await plain.goto(url)
   await upload(plain, 'portrait.jpg')
-  await toCheck(plain)
+  await toDownload(plain)
   expect((await plain.getByRole('button', { name: /^Share/ }).count()) === 0, 'a Share button without file sharing')
   await plain.close()
 })

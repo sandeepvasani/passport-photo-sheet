@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { PHOTO_SPECS, US_PASSPORT } from './config/photoSpecs'
-import { faceCountCheck, geometryChecks } from './lib/checks'
+import { faceCountCheck, geometryChecks, type CheckResult, type CheckStatus } from './lib/checks'
 import type { Crop, Markers } from './lib/geometry'
 import type { LoadedImage } from './lib/image'
 import type { BackgroundSettings } from './lib/render'
 import type { DetectedFace, FaceAnalysis } from './lib/vision'
-import { fixStep } from './steps'
+import { checkTodo, failureKey, fixStep, warningKey } from './steps'
 
 describe('fixStep', () => {
   it('sends every crop measurement to the Crop step, and resolution problems to Upload', () => {
@@ -42,5 +42,34 @@ describe('fixStep', () => {
   it('sends problems that need a new photo to Upload', () => {
     for (const id of ['expression', 'eyes-open', 'gaze', 'glasses', 'crown-edge', 'shadows', 'focus'])
       expect(fixStep(id), id).toBe('upload')
+  })
+})
+
+describe('checkTodo', () => {
+  const r = (id: string, status: CheckStatus, detail = ''): CheckResult => ({ id, label: id, status, detail })
+  const confirmed = Object.fromEntries(US_PASSPORT.attestations.map((a) => [a.id, true]))
+  const nothing = { attest: {}, ackWarnings: null, ackFailures: null }
+
+  it('opens the Download step once everything is confirmed and every problem reviewed', () => {
+    const results = [r('head', 'pass'), r('shadows', 'warn', 'Shadow found on your forehead.'), r('glasses', 'fail')]
+    expect(checkTodo(US_PASSPORT, results, nothing)).toHaveLength(3)
+    const review = { attest: confirmed, ackWarnings: warningKey(results), ackFailures: failureKey(results) }
+    expect(checkTodo(US_PASSPORT, results, review)).toEqual([])
+  })
+
+  it('needs a new tick for a new failure or a changed warning (after going back to edit)', () => {
+    const before = [r('shadows', 'warn', 'Shadow found on the left side of your face.'), r('glasses', 'fail')]
+    const review = { attest: confirmed, ackWarnings: warningKey(before), ackFailures: failureKey(before) }
+    const changed = [r('shadows', 'warn', 'Shadow found on the right side of your face.'), r('glasses', 'fail')]
+    expect(checkTodo(US_PASSPORT, changed, review)).toEqual(['Review the warnings and tick the orange box above.'])
+    const another = checkTodo(US_PASSPORT, [...before, r('head', 'fail')], review)
+    expect(another).toHaveLength(1)
+    expect(another[0]).toMatch(/^Fix the failed checks \(“glasses”, “head”\)/)
+  })
+
+  it('waits for a check still running, and for the checks to start', () => {
+    const review = { ...nothing, attest: confirmed }
+    expect(checkTodo(US_PASSPORT, [r('expression', 'pending')], review)).toEqual(['Wait a moment: the expression check is still running.'])
+    expect(checkTodo(US_PASSPORT, [], review)).toHaveLength(1)
   })
 })

@@ -3,7 +3,7 @@ import { BackgroundStep } from './components/BackgroundStep'
 import { CheckStep } from './components/CheckStep'
 import { Stepper, type StepDef } from './components/common'
 import { CropStep } from './components/CropStep'
-import { LayoutStep } from './components/LayoutStep'
+import { DownloadStep } from './components/DownloadStep'
 import { UploadStep, type UploadError } from './components/UploadStep'
 import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
 import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES, type PrintSize } from './config/printSizes'
@@ -28,14 +28,14 @@ import { registerServiceWorker } from './lib/serviceWorker'
 import { SETTINGS_KEY, startingSettings, type Settings } from './settings'
 import { renderSheet } from './lib/sheet'
 import type { FaceAnalysis } from './lib/vision'
-import { fixStep, type StepId } from './steps'
+import { checkTodo, fixStep, type StepId } from './steps'
 
 const STEPS: StepDef<StepId>[] = [
   { id: 'upload', label: 'Upload' },
   { id: 'crop', label: 'Crop' },
   { id: 'background', label: 'Background' },
-  { id: 'layout', label: 'Print layout' },
-  { id: 'check', label: 'Check & download' },
+  { id: 'check', label: 'Check' },
+  { id: 'download', label: 'Print & download' },
 ]
 
 interface Session {
@@ -128,8 +128,9 @@ export default function App() {
   const [initial] = useState(() => startingSettings(readStorage(SETTINGS_KEY), location.search))
   const [specId, setSpecId] = useState(initial.specId)
   const spec = PHOTO_SPECS.find((s) => s.id === specId) ?? PHOTO_SPECS[0]
-  /** The photo only goes into an online form, so there's no print layout step. */
+  /** The photo only goes into an online form, so it isn't laid out for printing. */
   const uploadOnly = !!spec.digital?.uploadOnly
+  const downloadLabel = uploadOnly ? 'Download' : 'Print & download'
   const [step, setStep] = useState<StepId>('upload')
   const [session, setSession] = useState<Session | null>(null)
   const [markers, setMarkers] = useState<Markers | null>(null)
@@ -176,7 +177,7 @@ export default function App() {
   const print = PRINT_SIZES.find((p) => p.id === printId) ?? PRINT_SIZES[0]
   const deferredBg = useDeferredValue(bg)
   const deferredCrop = useDeferredValue(crop)
-  const needsRender = step === 'background' || step === 'layout' || step === 'check'
+  const needsRender = step === 'background' || step === 'check' || step === 'download'
 
   // Compute the hair-detail matte when replacing the background; reuse it while it still covers the crop.
   const wantMatte = !!session && !!crop && bg.mode === 'replace' && needsRender
@@ -268,15 +269,12 @@ export default function App() {
   const layout = useMemo(() => computeLayout(spec, print, layoutMode), [spec, print, layoutMode])
   // Upload-only photo types are never printed, so they don't get a sheet.
   const sheet = useMemo(
-    () =>
-      photo && !uploadOnly && (step === 'layout' || step === 'check')
-        ? renderSheet(photo.canvas, layout, spec, { cutGuides }, PRINT_DPI)
-        : null,
+    () => (photo && !uploadOnly && step === 'download' ? renderSheet(photo.canvas, layout, spec, { cutGuides }, PRINT_DPI) : null),
     [photo, uploadOnly, layout, spec, cutGuides, step],
   )
   const results = useMemo(
     () =>
-      session && markers && shown && step === 'check'
+      session && markers && shown && (step === 'check' || step === 'download')
         ? runChecks({
             spec,
             image: session.image,
@@ -290,6 +288,10 @@ export default function App() {
         : [],
     [session, markers, shown, spec, step, expressionScores],
   )
+  // The Download step stays locked until the Check step is done.
+  const todo = checkTodo(spec, results, { attest, ackWarnings, ackFailures })
+  // The Check step shows the finished photo; the Download step its print sheet too, if it has one.
+  const prepared = !!photo && (step !== 'download' || uploadOnly || !!sheet)
 
   // Free canvas memory as soon as something is replaced (iOS Safari caps the total).
   // Switching subject keeps the same photo and full-image mask, so only free what's gone.
@@ -314,7 +316,7 @@ export default function App() {
   useEffect(() => {
     if (focusedStep.current === step) return
     const heading = mainRef.current?.querySelector('h2')
-    // The step may still be preparing (the Check step waits for the photo): try again after the next render.
+    // The step may still be preparing (the Check and Download steps wait for the photo): try again after the next render.
     if (!heading) return
     focusedStep.current = step
     heading.tabIndex = -1
@@ -426,7 +428,7 @@ export default function App() {
   const shareKind = spec.digital ? 'photo' : 'sheet'
   const [shareable, setShareable] = useState<{ file: File; for: [Rendered, HTMLCanvasElement | null] } | null>(null)
   useEffect(() => {
-    if (step !== 'check' || !shown || !canShareFiles() || (shareKind === 'sheet' && !sheet)) return
+    if (step !== 'download' || !shown || !canShareFiles() || (shareKind === 'sheet' && !sheet)) return
     let cancelled = false
     makeFile(shareKind, shown, sheet, spec, print, subject).then(
       ({ blob, name }) => !cancelled && setShareable({ file: new File([blob], name, { type: 'image/jpeg' }), for: [shown, sheet] }),
@@ -470,7 +472,7 @@ export default function App() {
       </header>
 
       <Stepper
-        steps={uploadOnly ? STEPS.filter((s) => s.id !== 'layout') : STEPS}
+        steps={STEPS.map((s) => (s.id === 'download' ? { ...s, label: downloadLabel } : s))}
         current={step}
         enabled={(s) => s === 'upload' || !!session}
         onSelect={goto}
@@ -529,12 +531,37 @@ export default function App() {
             matteStatus={matteStatus}
             onRetryMatte={() => setMatteFailedFor(null)}
             onBack={() => goto('crop')}
-            onNext={() => goto(uploadOnly ? 'check' : 'layout')}
-            nextLabel={uploadOnly ? 'Next: Check & download →' : 'Next: Print layout →'}
+            onNext={() => goto('check')}
           />
         )}
-        {step === 'layout' && session && (
-          <LayoutStep
+        {(step === 'check' || step === 'download') && session && !prepared && (
+          <div className="panel">
+            <div className="dropzone__busy" role="status">
+              <span className="spinner" aria-hidden />
+              Preparing your photo…
+            </div>
+          </div>
+        )}
+        {step === 'check' && session && photo && (
+          <CheckStep
+            spec={spec}
+            results={results}
+            photo={photo}
+            attest={attest}
+            onAttest={(id, v) => setAttest((a) => ({ ...a, [id]: v }))}
+            ackWarnings={ackWarnings}
+            onAckWarnings={setAckWarnings}
+            ackFailures={ackFailures}
+            onAckFailures={setAckFailures}
+            todo={todo}
+            onFix={onFix}
+            onBack={() => goto('background')}
+            onNext={() => goto('download')}
+            nextLabel={`Next: ${downloadLabel} →`}
+          />
+        )}
+        {step === 'download' && session && photo && (sheet || uploadOnly) && (
+          <DownloadStep
             spec={spec}
             print={print}
             onPrint={(id) => {
@@ -546,35 +573,9 @@ export default function App() {
             cutGuides={cutGuides}
             onCutGuides={setCutGuides}
             layout={layout}
-            sheet={sheet}
-            onBack={() => goto('background')}
-            onNext={() => goto('check')}
-          />
-        )}
-        {step === 'check' && session && !(photo && (sheet || uploadOnly)) && (
-          <div className="panel">
-            <div className="dropzone__busy" role="status">
-              <span className="spinner" aria-hidden />
-              Preparing your photo…
-            </div>
-          </div>
-        )}
-        {step === 'check' && session && photo && (sheet || uploadOnly) && (
-          <CheckStep
-            spec={spec}
-            print={print}
-            results={results}
             photo={photo}
             sheet={sheet}
-            photoCount={layout.cells.length}
-            cutGuides={cutGuides}
-            attest={attest}
-            onAttest={(id, v) => setAttest((a) => ({ ...a, [id]: v }))}
-            ackWarnings={ackWarnings}
-            onAckWarnings={setAckWarnings}
-            ackFailures={ackFailures}
-            onAckFailures={setAckFailures}
-            onFix={onFix}
+            checked={todo.length === 0}
             onDownloadSheet={() => download('sheet')}
             onDownloadPhoto={() => download('photo')}
             onShare={canShareFiles() ? share : undefined}
@@ -584,7 +585,7 @@ export default function App() {
               changeSpec(id)
               goto('crop')
             }}
-            onBack={() => goto(uploadOnly ? 'background' : 'layout')}
+            onBack={() => goto('check')}
           />
         )}
       </main>

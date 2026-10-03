@@ -96,32 +96,31 @@ if (process.env.REPLACE_BG) {
   await page.screenshot({ path: join(out, '3b-background-replaced.png'), fullPage: true })
 }
 
-// Upload-only photo types skip the print layout step.
-const toLayout = page.getByRole('button', { name: /Next: Print layout/ })
-if (await toLayout.count()) {
-  await toLayout.click()
-  await page.getByRole('radio', { name: new RegExp(printLabel) }).click()
-  await page.waitForTimeout(500)
-  await page.screenshot({ path: join(out, '4-layout.png'), fullPage: true })
-}
-
 await page.getByRole('button', { name: /Next: Check/ }).click()
 await page.waitForTimeout(800)
 // Checks that wait on a model still downloading (the expression check) settle first.
 await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 180_000 })
 console.log('checks:\n' + (await page.locator('.checks').first().innerText()))
-const sheetButton = page.getByRole('button', { name: /print sheet/ })
-const photoButton = page.getByRole('button', { name: /single digital photo|online upload/ })
-console.log('download enabled before confirming:', await photoButton.isEnabled())
+const next = page.getByRole('button', { name: /^Next: (Print & d|D)ownload/ })
+console.log('next step enabled before confirming:', await next.isEnabled())
 console.log((await page.locator('.download-todo').innerText()).trim())
-await page.screenshot({ path: join(out, '5a-check-unconfirmed.png'), fullPage: true })
+await page.screenshot({ path: join(out, '4a-check-unconfirmed.png'), fullPage: true })
 for (const box of await page.locator('.attestations input[type=checkbox]').all()) await box.check()
-await page.screenshot({ path: join(out, '5-check.png'), fullPage: true })
+await page.screenshot({ path: join(out, '4-check.png'), fullPage: true })
 console.log(`to-do after confirming: ${(await page.locator('.download-todo').count()) ? 'still shown' : 'gone'}`)
-console.log('download enabled after confirming:', await photoButton.isEnabled())
+console.log('next step enabled after confirming:', await next.isEnabled())
 
-if (await photoButton.isEnabled()) {
-  // Upload-only types have no print sheet.
+if (await next.isEnabled()) {
+  await next.click()
+  // Upload-only photo types have no print sizes.
+  const printSize = page.getByRole('radio', { name: new RegExp(printLabel) })
+  if (await printSize.count()) {
+    await printSize.click()
+    await page.waitForTimeout(500)
+  }
+  await page.screenshot({ path: join(out, '5-download.png'), fullPage: true })
+  const sheetButton = page.getByRole('button', { name: /print sheet/ })
+  const photoButton = page.getByRole('button', { name: /single digital photo|online upload/ })
   const buttons = (await sheetButton.count())
     ? [
         [sheetButton, 'sheet.jpg'],

@@ -748,6 +748,12 @@ a {
   gap: 0.4rem;
 }
 
+/* Just the photo, at a size that's easy to look over. */
+.final-previews--single {
+  grid-template-columns: minmax(0, 360px);
+  justify-content: center;
+}
+
 figcaption {
   font-size: 0.82rem;
   color: var(--muted);
@@ -848,7 +854,18 @@ figcaption {
 }
 
 .download-todo {
+  margin: 1rem 0 0;
+}
+
+/* The Download step's second heading (print settings, or the downloads), set apart from the first. */
+.section-title:not(:first-child) {
+  margin-top: 1.75rem;
+}
+
+/* Shown on the Download step until the Check step is done. */
+.download-gate {
   margin: 0;
+  justify-content: space-between;
 }
 
 .related {
