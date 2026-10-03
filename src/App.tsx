@@ -7,7 +7,8 @@ import { LayoutStep } from './components/LayoutStep'
 import { UploadStep, type UploadError } from './components/UploadStep'
 import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
 import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSizes'
-import { backgroundCheck, eyewearChecks, faceCountCheck, runChecks, type CheckResult } from './lib/checks'
+import { backgroundCheck, retakeIssues, runChecks, type CheckResult } from './lib/checks'
+import { scoreExpression, type ExpressionScores } from './lib/expression'
 import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
 import { canvasToJpeg, canvasToJpegSized, ctx2d, downloadBlob, loadImageFile, releaseCanvas, releaseImage, type LoadedImage } from './lib/image'
 import { computeLayout, type LayoutMode } from './lib/layout'
@@ -93,6 +94,8 @@ export default function App() {
   const [subjectBusy, setSubjectBusy] = useState(false)
   /** Crop for which computing the matte failed (so it isn't retried in a loop). */
   const [matteFailedFor, setMatteFailedFor] = useState<Crop | null>(null)
+  /** FER+ expression scores and the analysis (photo and person) they were computed for. */
+  const [expression, setExpression] = useState<{ analysis: FaceAnalysis; scores: ExpressionScores } | null>(null)
 
   const print = PRINT_SIZES.find((p) => p.id === printId) ?? PRINT_SIZES[0]
   const deferredBg = useDeferredValue(bg)
@@ -117,6 +120,21 @@ export default function App() {
       cancelled = true
     }
   }, [session, crop, spec, matteStatus])
+
+  // Score the expression in the background; the model downloads while the photo is being cropped.
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    scoreExpression(session.image, session.analysis.landmarks).then(
+      (scores) => !cancelled && setExpression({ analysis: session.analysis, scores }),
+      // Without it, the expression check still covers smiles, parted lips and pouting.
+      (err) => console.warn('Expression model unavailable', err),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [session])
+  const expressionScores = session && expression?.analysis === session.analysis ? expression.scores : null
 
   const subject = useMemo(() => (markers ? midpoint(markers.eyeLeft, markers.eyeRight) : undefined), [markers])
   const masks = useMemo(
@@ -146,9 +164,9 @@ export default function App() {
   const results = useMemo(
     () =>
       session && markers && deferredCrop && photo && step === 'check'
-        ? runChecks({ spec, image: session.image, analysis: session.analysis, markers, crop: deferredCrop, bg: deferredBg, photo })
+        ? runChecks({ spec, image: session.image, analysis: session.analysis, markers, crop: deferredCrop, bg: deferredBg, photo, expression: expressionScores })
         : [],
-    [session, markers, deferredCrop, photo, spec, deferredBg, step],
+    [session, markers, deferredCrop, photo, spec, deferredBg, step, expressionScores],
   )
 
   // Free canvas memory as soon as something is replaced (iOS Safari caps the total).
@@ -312,9 +330,7 @@ export default function App() {
             markers={markers}
             crop={crop}
             bg={bg}
-            earlyIssues={[faceCountCheck(session.analysis, crop, spec), ...eyewearChecks(spec, session.analysis.eyewear)].filter(
-              (r) => r.status !== 'pass',
-            )}
+            earlyIssues={retakeIssues(session.analysis, crop, spec, expressionScores)}
             faces={session.analysis.faces}
             subject={session.analysis.subject}
             subjectBusy={subjectBusy}

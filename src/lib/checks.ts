@@ -2,6 +2,7 @@ import { formatLength, formatRange, type PhotoSpec } from '../config/photoSpecs'
 import { eyeLineAngle, measure, sourceToFrame, uncoveredFraction, type Crop, type Markers, type Point } from './geometry'
 import { ctx2d, type LoadedImage } from './image'
 import type { BackgroundSettings, RenderedPhoto } from './render'
+import type { ExpressionScores } from './expression'
 import type { DetectedFace, EyewearAnalysis, FaceAnalysis, LightBand, LightingAnalysis, LightRegion, LightSide } from './vision'
 
 export type CheckStatus = 'pass' | 'warn' | 'fail'
@@ -21,6 +22,8 @@ export interface CheckInput {
   crop: Crop
   bg: BackgroundSettings
   photo: RenderedPhoto
+  /** FER+ scores, once the expression model has run (null while it loads or if it can't). */
+  expression?: ExpressionScores | null
 }
 
 const lum = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b
@@ -490,6 +493,103 @@ export function lightingCheck(lighting: LightingAnalysis | null): CheckResult | 
   return { id: 'shadows', label: 'Even lighting on face', status: 'warn', detail: notes.join(' ') }
 }
 
+/** Blink score (face mesh) below which the eyes count as open. */
+const EYES_OPEN_LIMIT = 0.5
+/** Smile score (face mesh) above which a neutral-expression photo counts as smiling. */
+const SMILE_LIMIT = 0.35
+/** Lip gap, relative to mouth width, above which the mouth counts as open (~0 when closed, >0.1 with teeth showing). */
+const LIPS_APART = 0.06
+/**
+ * FER+ probability above which an expression is reported. Neutral and smiling test
+ * photos never scored above 0.09 for any of these; clear frowns and surprise scored 0.47–0.71.
+ */
+const EXPRESSION_LIMIT = 0.4
+/** Sadness fires a little more readily on dim or soft photos, so it needs more. */
+const SAD_LIMIT = 0.5
+/** Face-mesh pucker score for a pout or duck face (0.96 on one; at most 0.18 on others, beards included). */
+const PUCKER_LIMIT = 0.6
+/** Iris offset from the middle of the eye opening (fraction of its width) that counts as looking away. */
+const GAZE_LIMIT = 0.16
+
+/**
+ * Whether the expression suits the photo type: no smile where it must be neutral, mouth
+ * closed, and no frown, raised brows, tense or lopsided face, or pout. Uses the face
+ * mesh's smile, lip and pucker measures, and FER+ (when it has run) for the rest.
+ */
+export function expressionCheck(
+  spec: PhotoSpec,
+  blendshapes: Record<string, number>,
+  landmarks: Point[],
+  scores: ExpressionScores | null,
+): CheckResult {
+  const neutral = spec.expression === 'neutral'
+  const label = neutral ? 'Neutral expression, mouth closed' : 'Natural expression, mouth closed'
+  if (landmarks.length < 468) return { id: 'expression', label, status: 'pass', detail: 'Expression couldn’t be checked' }
+  const dist = (a: number, b: number) => Math.hypot(landmarks[a].x - landmarks[b].x, landmarks[a].y - landmarks[b].y)
+  const smile = ((blendshapes.mouthSmileLeft ?? 0) + (blendshapes.mouthSmileRight ?? 0)) / 2
+  const lipsApart = dist(LM_LIP_TOP, LM_LIP_BOTTOM) / Math.max(1, dist(LM_MOUTH_LEFT, LM_MOUTH_RIGHT)) > LIPS_APART
+
+  const issues: string[] = []
+  if (neutral && smile >= SMILE_LIMIT) issues.push('You’re smiling. This photo needs a neutral expression, so no smile.')
+  if (lipsApart) issues.push(neutral ? 'Your lips look parted. Keep your mouth closed.' : 'Your lips look parted. You can smile, but keep your mouth closed.')
+  if (scores) {
+    if (scores.anger > EXPRESSION_LIMIT) issues.push('You look like you’re frowning. Relax your forehead and eyebrows.')
+    if (scores.sad > SAD_LIMIT) issues.push('You look sad or upset. Relax your face, with the corners of your mouth level.')
+    if (scores.surprise > EXPRESSION_LIMIT || scores.fear > EXPRESSION_LIMIT) {
+      issues.push('Your eyebrows look raised, as if surprised. Relax your forehead.')
+    }
+    if (scores.disgust > EXPRESSION_LIMIT || scores.contempt > EXPRESSION_LIMIT) {
+      issues.push('Your face looks tense or lopsided, for example a wrinkled nose or a smirk. Relax your face.')
+    }
+  }
+  if ((blendshapes.mouthPucker ?? 0) > PUCKER_LIMIT) issues.push('Your lips look pushed forward (a pout or “duck face”). Relax your mouth.')
+
+  if (issues.length) return { id: 'expression', label, status: 'warn', detail: issues.join(' ') }
+  return { id: 'expression', label, status: 'pass', detail: neutral ? 'Expression looks neutral' : 'Expression looks natural, mouth closed' }
+}
+
+/**
+ * Horizontal gaze: how far the irises sit from the middle of the eye openings, as a
+ * fraction of the eye's width (+ = towards the right of the photo), from the face mesh.
+ */
+export function gazeOffset(landmarks: Point[]): number {
+  if (landmarks.length < 478) return 0
+  const a = landmarks[LM_IRIS_A]
+  const b = landmarks[LM_IRIS_B]
+  const ux = (b.x - a.x) / Math.hypot(b.x - a.x, b.y - a.y)
+  const uy = (b.y - a.y) / Math.hypot(b.x - a.x, b.y - a.y)
+  const along = (i: number) => landmarks[i].x * ux + landmarks[i].y * uy
+  // Each iris between its eye's corners: 33/133 for one eye, 362/263 for the other.
+  const tA = (along(LM_IRIS_A) - along(33)) / (along(133) - along(33))
+  const tB = (along(LM_IRIS_B) - along(362)) / (along(263) - along(362))
+  return (tA + tB) / 2 - 0.5
+}
+
+export function gazeCheck(offset: number): CheckResult {
+  const away = Math.abs(offset) > GAZE_LIMIT
+  return {
+    id: 'gaze',
+    label: 'Looking at the camera',
+    status: away ? 'warn' : 'pass',
+    detail: away ? 'Your eyes look turned to the side. Look straight into the camera lens.' : 'Eyes look straight at the camera',
+  }
+}
+
+/**
+ * Problems that need a new photo rather than a different crop (other people in the frame,
+ * glasses, expression, gaze), shown on the Crop step so they can be fixed early.
+ */
+export function retakeIssues(analysis: FaceAnalysis, crop: Crop, spec: PhotoSpec, expression: ExpressionScores | null): CheckResult[] {
+  const bs = analysis.blendshapes
+  const eyesOpen = Math.max(bs.eyeBlinkLeft ?? 0, bs.eyeBlinkRight ?? 0) < EYES_OPEN_LIMIT
+  return [
+    faceCountCheck(analysis, crop, spec),
+    ...eyewearChecks(spec, analysis.eyewear),
+    expressionCheck(spec, bs, analysis.landmarks, expression),
+    ...(eyesOpen ? [gazeCheck(gazeOffset(analysis.landmarks))] : []),
+  ].filter((r) => r.status !== 'pass')
+}
+
 /** Whether any part of a face (grown a little to cover hair and ears) falls inside the passport frame. */
 export function faceInFrame(face: DetectedFace, crop: Crop, spec: PhotoSpec): boolean {
   const { x, y, w, h } = face.box
@@ -559,33 +659,13 @@ export function runChecks(input: CheckInput): CheckResult[] {
     results.push({
       id: 'eyes-open',
       label: 'Both eyes open',
-      status: blink < 0.5 ? 'pass' : blink < 0.7 ? 'warn' : 'fail',
-      detail: blink < 0.5 ? 'Eyes look open' : 'One or both eyes look closed or squinting.',
+      status: blink < EYES_OPEN_LIMIT ? 'pass' : blink < 0.7 ? 'warn' : 'fail',
+      detail: blink < EYES_OPEN_LIMIT ? 'Eyes look open' : 'One or both eyes look closed or squinting.',
     })
 
-    const smile = ((bs.mouthSmileLeft ?? 0) + (bs.mouthSmileRight ?? 0)) / 2
-    const lms = analysis.landmarks
-    const dist = (a: number, b: number) => Math.hypot(lms[a].x - lms[b].x, lms[a].y - lms[b].y)
-    // Gap between the inner lips relative to mouth width: ~0 when closed, >0.1 when teeth show.
-    const lipsApart = dist(LM_LIP_TOP, LM_LIP_BOTTOM) / Math.max(1, dist(LM_MOUTH_LEFT, LM_MOUTH_RIGHT)) > 0.06
-    if (spec.expression === 'neutral') {
-      const ok = smile < 0.35 && !lipsApart
-      results.push({
-        id: 'expression',
-        label: 'Neutral expression, mouth closed',
-        status: ok ? 'pass' : 'warn',
-        detail: ok ? 'Expression looks neutral' : 'This document needs a neutral expression with the mouth closed, so no smile.',
-      })
-    } else {
-      results.push({
-        id: 'expression',
-        label: 'Mouth closed',
-        status: lipsApart ? 'warn' : 'pass',
-        detail: lipsApart
-          ? 'Your lips look parted. You can smile, but keep your mouth closed.'
-          : 'Mouth looks closed',
-      })
-    }
+    results.push(expressionCheck(spec, bs, analysis.landmarks, input.expression ?? null))
+    // Closed eyes have no iris to place.
+    if (blink < EYES_OPEN_LIMIT) results.push(gazeCheck(gazeOffset(analysis.landmarks)))
   }
 
   results.push(...eyewearChecks(spec, analysis.eyewear))

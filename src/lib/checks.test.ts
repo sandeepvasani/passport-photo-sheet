@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { CANADA_50X70, INDIA_2X2, INTL_35X45, US_PASSPORT } from '../config/photoSpecs'
-import { eyewearChecks, faceCountCheck, lightingCheck } from './checks'
-import type { Crop } from './geometry'
+import { expressionCheck, eyewearChecks, faceCountCheck, gazeCheck, gazeOffset, lightingCheck } from './checks'
+import type { ExpressionScores } from './expression'
+import type { Crop, Point } from './geometry'
 import type { DetectedFace, EyewearAnalysis, FaceAnalysis, LightingAnalysis } from './vision'
 
 const none: EyewearAnalysis = { detected: false, accessoryShare: 0, bridgeEdge: 8, rimEdge: 8, glareShare: 0, lensBrightness: 0.85 }
@@ -148,5 +149,77 @@ describe('lightingCheck', () => {
     expect(lightingCheck(covered)?.status).toBe('pass')
     expect(lightingCheck(light([null, null, null], [null, null, null], [null, null, null], [null, null, null]))).toBeNull()
     expect(lightingCheck(null)).toBeNull()
+  })
+})
+
+// A face mesh with only the points the expression and gaze checks read.
+function mesh(points: Record<number, Point>): Point[] {
+  return Array.from({ length: 478 }, (_, i) => points[i] ?? { x: 0, y: 0 })
+}
+const closedMouth = mesh({ 13: { x: 50, y: 100 }, 14: { x: 50, y: 101 }, 61: { x: 0, y: 100 }, 291: { x: 100, y: 100 } })
+const openMouth = mesh({ 13: { x: 50, y: 100 }, 14: { x: 50, y: 115 }, 61: { x: 0, y: 100 }, 291: { x: 100, y: 100 } })
+// FER+ scores measured on test photos (neutral, happy, surprise, sad, anger, disgust, fear, contempt).
+const fer = (v: number[]): ExpressionScores => {
+  const [neutral, happy, surprise, sad, anger, disgust, fear, contempt] = v
+  return { neutral, happy, surprise, sad, anger, disgust, fear, contempt }
+}
+const FER = {
+  neutralFace: fer([0.89, 0, 0, 0, 0.09, 0, 0, 0.01]), // the highest non-neutral score on a neutral photo
+  smiling: fer([0.03, 0.97, 0, 0, 0, 0, 0, 0]),
+  scowl: fer([0.42, 0, 0, 0, 0.55, 0.01, 0, 0.01]),
+  surprise: fer([0.2, 0, 0.71, 0.02, 0, 0, 0.06, 0]),
+  terror: fer([0.05, 0, 0.28, 0.18, 0.01, 0.01, 0.47, 0]),
+  grief: fer([0.32, 0, 0, 0.62, 0.02, 0.02, 0, 0.02]),
+}
+const relaxed = { mouthSmileLeft: 0.17, mouthSmileRight: 0.15, mouthPucker: 0 }
+
+describe('expressionCheck', () => {
+  it('passes a relaxed face', () => {
+    expect(expressionCheck(INTL_35X45, relaxed, closedMouth, FER.neutralFace).status).toBe('pass')
+    expect(expressionCheck(US_PASSPORT, relaxed, closedMouth, FER.neutralFace).status).toBe('pass')
+  })
+
+  it('allows a closed-mouth smile only where the rules do', () => {
+    const smile = { mouthSmileLeft: 0.96, mouthSmileRight: 0.93 }
+    expect(expressionCheck(US_PASSPORT, smile, closedMouth, FER.smiling).status).toBe('pass')
+    expect(expressionCheck(INTL_35X45, smile, closedMouth, FER.smiling).detail).toContain('smiling')
+  })
+
+  it('flags parted lips for every photo type', () => {
+    expect(expressionCheck(US_PASSPORT, relaxed, openMouth, null).detail).toContain('lips look parted')
+  })
+
+  it('names frowns, raised eyebrows and sadness', () => {
+    expect(expressionCheck(US_PASSPORT, relaxed, closedMouth, FER.scowl).detail).toContain('frowning')
+    expect(expressionCheck(US_PASSPORT, relaxed, closedMouth, FER.surprise).detail).toContain('eyebrows look raised')
+    expect(expressionCheck(US_PASSPORT, relaxed, closedMouth, FER.terror).detail).toContain('eyebrows look raised')
+    expect(expressionCheck(US_PASSPORT, relaxed, closedMouth, FER.grief).detail).toContain('sad')
+  })
+
+  it('flags a pout, but not a moustache', () => {
+    expect(expressionCheck(US_PASSPORT, { ...relaxed, mouthPucker: 0.96 }, closedMouth, FER.neutralFace).detail).toContain('duck face')
+    expect(expressionCheck(US_PASSPORT, { ...relaxed, mouthPucker: 0.18 }, closedMouth, FER.neutralFace).status).toBe('pass')
+  })
+
+  it('still checks smiles and lips before the expression model has run', () => {
+    expect(expressionCheck(INTL_35X45, relaxed, closedMouth, null).status).toBe('pass')
+  })
+})
+
+describe('gaze', () => {
+  // Two eyes 30 px wide, irises at `shift` px from their centres.
+  const eyes = (shift: number) =>
+    mesh({ 33: { x: 0, y: 0 }, 133: { x: 30, y: 0 }, 468: { x: 15 + shift, y: 0 }, 362: { x: 60, y: 0 }, 263: { x: 90, y: 0 }, 473: { x: 75 + shift, y: 0 } })
+
+  it('measures how far the irises sit from the middle of the eyes', () => {
+    expect(gazeOffset(eyes(0))).toBeCloseTo(0, 6)
+    expect(gazeOffset(eyes(6))).toBeCloseTo(0.2, 6)
+    expect(gazeOffset(eyes(-6))).toBeCloseTo(-0.2, 6)
+  })
+
+  it('flags eyes turned away (0.22 on the looking-away example), not ones looking at the camera (at most 0.11)', () => {
+    expect(gazeCheck(0.218).status).toBe('warn')
+    expect(gazeCheck(-0.2).status).toBe('warn')
+    expect(gazeCheck(0.109).status).toBe('pass')
   })
 })

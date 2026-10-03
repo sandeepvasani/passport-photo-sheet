@@ -4,11 +4,11 @@
  * keeps fine hair detail the 256×256 selfie segmenter misses. Only loaded when
  * the user replaces the background.
  */
-import type { InferenceSession } from 'onnxruntime-web'
 import type { PhotoSpec } from '../config/photoSpecs'
 import { frameToSource, type Crop } from './geometry'
 import { createCanvas, ctx2d, releaseCanvas, type LoadedImage } from './image'
 import { clampRect, makeMaskLayer, type MaskLayer } from './mask'
+import { modelLoader } from './onnx'
 
 const MODEL_FILE = 'modnet_fp16.onnx'
 /** Network input size range (longest side); MODNet expects multiples of 32. */
@@ -19,29 +19,8 @@ const TARGET_DENSITY = 0.7
 const MIN_DENSITY = 0.45
 const OUT_PX_PER_MM = 300 / 25.4
 
-let sessionPromise: Promise<{ session: InferenceSession; ort: typeof import('onnxruntime-web') }> | null = null
-
-function assetUrl(path: string): string {
-  return new URL(`${import.meta.env.BASE_URL}${path}`, document.baseURI).href
-}
-
-export function loadMatteModel() {
-  if (!sessionPromise) {
-    sessionPromise = (async () => {
-      // The wasm binary is emitted and served by Vite alongside this chunk.
-      const ort = await import('onnxruntime-web/wasm')
-      // Multi-threading needs cross-origin isolation; fall back to one thread otherwise.
-      ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1
-      const session = await ort.InferenceSession.create(assetUrl(`models/${MODEL_FILE}`), {
-        executionProviders: ['wasm'],
-        graphOptimizationLevel: 'all',
-      })
-      return { session, ort }
-    })()
-    sessionPromise.catch(() => (sessionPromise = null))
-  }
-  return sessionPromise
-}
+/** Loads MODNet on first use. */
+export const loadMatteModel = modelLoader(MODEL_FILE)
 
 const roundTo32 = (v: number) => Math.max(32, Math.round(v / 32) * 32)
 

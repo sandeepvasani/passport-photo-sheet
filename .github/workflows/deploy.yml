@@ -24,7 +24,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # The ML models (~33 MB) are downloaded by `npm run setup`; cache them between runs.
+      # The ML models (~52 MB) are downloaded by `npm run setup`; cache them between runs.
       - uses: actions/cache@v6
         with:
           path: public/models

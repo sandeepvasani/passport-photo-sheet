@@ -26,6 +26,12 @@ const MODELS = [
     file: 'modnet_fp16.onnx',
     url: 'https://huggingface.co/Xenova/modnet/resolve/main/onnx/model_fp16.onnx',
   },
+  {
+    // FER+ facial-expression classifier (MIT, ONNX Model Zoo); int8 gives the same
+    // results as fp32 at half the size.
+    file: 'emotion-ferplus-12-int8.onnx',
+    url: 'https://github.com/onnx/models/raw/main/validated/vision/body_analysis/emotion_ferplus/model/emotion-ferplus-12-int8.onnx',
+  },
 ]
 
 async function exists(path) {
