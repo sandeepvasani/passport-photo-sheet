@@ -46,7 +46,7 @@ if (await uploadError.isVisible()) {
   console.log('upload error:', await uploadError.innerText())
   console.log(errors.length ? `ERRORS:\n${errors.join('\n')}` : 'no page errors')
   await browser.close()
-  process.exit(0)
+  process.exit(errors.length ? 1 : 0)
 }
 if (process.env.SUBJECT) {
   // SUBJECT=n picks the n-th person from the left when the photo has several.
@@ -121,3 +121,5 @@ if (await photoButton.isEnabled()) {
 
 console.log(errors.length ? `ERRORS:\n${errors.join('\n')}` : 'no page errors')
 await browser.close()
+// Fail the run on page errors (or an editor that didn't draw), so scripts can rely on the exit code.
+process.exit(errors.length ? 1 : 0)

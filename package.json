@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "oxlint",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "e2e:scenarios": "node scripts/e2e-scenarios.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
