@@ -223,3 +223,50 @@ export function hexToRgb(hex: string): [number, number, number] {
   const v = parseInt(hex.replace('#', ''), 16)
   return [(v >> 16) & 255, (v >> 8) & 255, v & 255]
 }
+
+/** Everything the edge refinement needs, at the finished photo's resolution. */
+export interface RefineInput {
+  /** The cropped photo as RGBA; with `replaceWith`, it's composited onto that colour in place. */
+  rgba: Uint8ClampedArray<ArrayBuffer>
+  /** Person mask resampled to the photo (0–1). */
+  coarse: Float32Array
+  width: number
+  height: number
+  /** The mask includes a true alpha matte (MODNet), not only segmentation. */
+  matte: boolean
+  /** Edge-refinement radius in pixels at 300 DPI, and the photo's DPI ÷ 300. */
+  feather: number
+  scale: number
+  /** −1 (tighten around the subject) … +1 (expand into the background). */
+  expand: number
+  /** A pixel on the person (between the eyes): only the region connected to it is kept. */
+  seed?: { x: number; y: number }
+  /** New background colour, when replacing it. */
+  replaceWith?: [number, number, number]
+}
+
+/**
+ * Snaps the person matte to the photo's edges and, with `replaceWith`, replaces the
+ * background. Returns the matte. Pure, so it can run in a worker (see render.ts).
+ */
+export function refineMatte(input: RefineInput): Float32Array {
+  const { rgba, coarse, width: W, height: H, feather, scale, seed, replaceWith } = input
+  const shift = input.expand * 0.3
+  let alpha: Float32Array
+  let radius: number
+  if (input.matte) {
+    // A true matte already has soft hair edges: only snap it lightly to the
+    // full-resolution image and trim faint noise, so thin strands survive.
+    radius = Math.round(feather * 0.4 * scale)
+    const refined = radius > 0 ? guidedFilter(toPlanes(rgba), coarse, W, H, radius, 1e-4) : coarse
+    alpha = levels(refined, 0.05 - shift, 0.95 - shift)
+  } else {
+    // Coarse segmentation: snap edges to the image and harden the transition.
+    radius = Math.max(1, Math.round(feather * scale))
+    const refined = guidedFilter(toPlanes(rgba), coarse, W, H, radius, 2e-3)
+    alpha = levels(refined, 0.25 - shift, 0.75 - shift)
+  }
+  if (seed) alpha = keepConnected(alpha, W, H, seed.x, seed.y, Math.max(2, radius * 2))
+  if (replaceWith) replaceBackground(rgba, alpha, W, H, replaceWith, Math.max(8, radius * 3))
+  return alpha
+}

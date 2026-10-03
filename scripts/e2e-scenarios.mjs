@@ -6,27 +6,44 @@
 //   npm run build && npx vite preview --port 4173 &
 //   npm run e2e:scenarios                # all scenarios
 //   npm run e2e:scenarios -- download    # only those whose name contains "download"
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium, webkit } from 'playwright'
+import { chromium, firefox, webkit } from 'playwright'
 
 const images = join(dirname(fileURLToPath(import.meta.url)), '../test-images')
 const url = process.env.APP_URL ?? 'http://localhost:4173/'
 const only = process.argv.slice(2).map((s) => s.toLowerCase())
-// ENGINE=webkit runs Safari's engine; otherwise installed Chrome (PW_CHANNEL=bundled for Playwright's Chromium).
+// ENGINE=webkit runs Safari's engine and ENGINE=firefox Firefox's; otherwise installed Chrome
+// (PW_CHANNEL=bundled for Playwright's Chromium).
+const engine = process.env.ENGINE ?? 'chromium'
 const browser =
-  process.env.ENGINE === 'webkit'
-    ? await webkit.launch()
-    : await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
+  engine === 'chromium'
+    ? await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
+    : await { firefox, webkit }[engine].launch()
 const results = []
 
 async function scenario(name, fn, pageOptions = {}) {
   if (only.length && !only.some((s) => name.toLowerCase().includes(s))) return
-  // A short window, so the Check step's list runs below the fold.
-  const page = await browser.newPage({ viewport: { width: 1280, height: 700 }, acceptDownloads: true, ...pageOptions })
+  // A short window, so the Check step's list runs below the fold. The service worker is blocked unless a
+  // scenario allows it: it would reload the first visit, and page.route() can't see the requests it handles.
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 700 },
+    acceptDownloads: true,
+    serviceWorkers: 'block',
+    ...pageOptions,
+  })
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(e.message))
+  // Content-Security-Policy violations count as failures in every scenario.
+  page.on('console', (m) => m.text().startsWith('CSP violation') && pageErrors.push(m.text()))
+  await page.addInitScript(() =>
+    document.addEventListener(
+      'securitypolicyviolation',
+      (e) => !window.__expectViolation && console.error(`CSP violation: ${e.violatedDirective} ${e.blockedURI}`),
+    ),
+  )
   // Records text drawn on canvases (the sheet's scale-bar label).
   await page.addInitScript(() => {
     window.__texts = []
@@ -461,7 +478,7 @@ await scenario('Markers can be picked and moved with the keyboard', async (page,
 await scenario(
   'A finger grabs a marker from further away than a mouse does',
   async (page, expect) => {
-    if (process.env.ENGINE === 'webkit') return console.log('      (touch input needs Chromium: skipped)')
+    if (engine !== 'chromium') return console.log('      (touch input needs Chromium: skipped)')
     await pickSpec(page, /35 . 45 mm Passport/)
     await upload(page, 'portrait.jpg')
     await page.getByLabel('Re-fit automatically after moving a marker').uncheck()
@@ -547,6 +564,279 @@ await scenario('Everyone in a group photo can be picked', async (page, expect) =
   await upload(page, 'group.jpg')
   const people = await page.locator('.subject-picker [role=radio]').count()
   expect(people === 4, `${people} of the 4 people offered`)
+})
+
+const chromiumOnly = (reason) => engine !== 'chromium' && (console.log(`      (${reason}: skipped)`), true)
+const isChecked = async (page, name) => (await page.getByRole('radio', { name }).first().getAttribute('aria-checked')) === 'true'
+/** Ticks every box on the Check step, including the warnings and failures ones. */
+async function acceptAll(page) {
+  await confirmAll(page)
+  for (const box of ['.checkbox--warn input', '.checkbox--fail input']) if (await page.locator(box).count()) await page.locator(box).check()
+}
+
+await scenario('Replacing the background and adjusting its edges don’t freeze the page', async (page, expect) => {
+  if (!(await page.evaluate(() => PerformanceObserver.supportedEntryTypes.includes('longtask')))) {
+    return console.log('      (this browser doesn’t report long tasks: skipped)')
+  }
+  await pickSpec(page, /Canada Passport/)
+  await upload(page, 'plain-bg.jpg')
+  await page.getByRole('button', { name: /Next: Background/ }).click()
+  await page.evaluate(() => {
+    window.__long = []
+    new PerformanceObserver((list) => window.__long.push(...list.getEntries().map((e) => e.duration))).observe({ type: 'longtask' })
+  })
+  await page.getByRole('radio', { name: 'Replace background' }).click()
+  await page.waitForTimeout(300)
+  await page.locator('.inline-status').waitFor({ state: 'detached', timeout: 120_000 })
+  const slider = page.locator('.slider', { hasText: 'Edge softness' }).locator('input')
+  for (const v of [6, 7, 8, 9]) {
+    await slider.fill(String(v))
+    await page.waitForTimeout(150)
+  }
+  await page.waitForTimeout(1500)
+  const longest = await page.evaluate(() => Math.max(0, ...window.__long))
+  expect(longest < 400, `the page froze for ${Math.round(longest)} ms`)
+})
+
+await scenario('If the edge-refinement worker can’t load, the photo is still made', async (page, expect) => {
+  let failed = false
+  page.on('requestfailed', (r) => r.url().includes('refine.worker') && (failed = true))
+  await page.route('**/refine.worker-*.js', (route) => route.abort())
+  await upload(page, 'portrait.jpg')
+  await toCheck(page)
+  expect(failed, 'the worker wasn’t asked for')
+  await acceptAll(page)
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30_000 }),
+    page.getByRole('button', { name: /print sheet/ }).click(),
+  ])
+  expect(download.suggestedFilename() === 'passport-photo-us-2x2-4x6-print.jpg', `saved as ${download.suggestedFilename()}`)
+})
+
+await scenario('A first visit reloads once to turn on multi-threading, and ONNX Runtime uses several threads', async (_, expect) => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 700 } })
+  let loads = 0
+  page.on('load', () => loads++)
+  await page.goto(url)
+  await page.waitForFunction(() => self.crossOriginIsolated, null, { timeout: 30_000 }).catch(() => {})
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => self.crossOriginIsolated), 'not cross-origin isolated after the first visit')
+  expect(loads === 2, `${loads} page loads on the first visit, expected 2 (one reload)`)
+  await page.reload()
+  await page.waitForTimeout(1000)
+  expect(loads === 3, `${loads - 2} loads on the next visit, expected no extra reload`)
+  // The expression model starts ONNX Runtime; it then reports the threads it was set up with.
+  const model = page.waitForRequest(/emotion-ferplus/, { timeout: 120_000 })
+  await upload(page, 'portrait.jpg')
+  await model
+  const threads = await page.evaluate(async () => (await import('./vendor/onnxruntime/ort.wasm.bundle.min.mjs')).env.wasm.numThreads)
+  expect(threads > 1, `ONNX Runtime set up with ${threads} thread(s)`)
+  await page.close()
+})
+
+await scenario('The first-visit reload doesn’t happen once a photo has been chosen', async (_, expect) => {
+  if (chromiumOnly('holding the service worker’s requests needs Chromium')) return
+  const context = await browser.newContext({ viewport: { width: 1280, height: 700 } })
+  // Hold the service worker's install until a photo has been chosen.
+  let release
+  const held = new Promise((resolve) => (release = resolve))
+  await context.route('**/favicon.svg', async (route) => {
+    await held
+    await route.continue()
+  })
+  const page = await context.newPage()
+  let loads = 0
+  page.on('load', () => loads++)
+  await page.goto(url)
+  await upload(page, 'portrait.jpg')
+  release()
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 30_000 })
+  await page.waitForTimeout(1500)
+  expect(loads === 1, `the page reloaded with a photo chosen (${loads} loads)`)
+  expect(await page.getByRole('heading', { name: 'Crop & position' }).isVisible(), 'the photo was lost')
+  await context.close()
+})
+
+await scenario('After one visit, it works offline, background replacement included', async (_, expect) => {
+  if (engine === 'webkit') return console.log('      (Playwright’s offline mode can’t reload WebKit: skipped)')
+  const context = await browser.newContext({ viewport: { width: 1280, height: 700 }, acceptDownloads: true })
+  const page = await context.newPage()
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  const replaceBackground = async () => {
+    await pickSpec(page, /Canada Passport/)
+    await upload(page, 'plain-bg.jpg')
+    await page.getByRole('button', { name: /Next: Background/ }).click()
+    await page.getByRole('radio', { name: 'Replace background' }).click()
+    await page.waitForTimeout(300)
+    await page.locator('.inline-status').waitFor({ state: 'detached', timeout: 120_000 })
+  }
+  await page.goto(url)
+  await page.waitForFunction(() => self.crossOriginIsolated, null, { timeout: 30_000 })
+  await replaceBackground()
+  await context.setOffline(true)
+  await page.reload()
+  await replaceBackground()
+  expect((await page.locator('.alert--error').count()) === 0, `offline: ${await page.locator('.alert--error').allInnerTexts()}`)
+  await page.getByRole('button', { name: /Next: Print layout/ }).click()
+  await page.getByRole('button', { name: /Next: Check/ }).click()
+  await page.waitForFunction(() => !document.querySelector('.status-icon--pending'), null, { timeout: 120_000 })
+  await acceptAll(page)
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30_000 }),
+    page.getByRole('button', { name: /print sheet/ }).click(),
+  ])
+  expect(
+    download.suggestedFilename() === 'passport-photo-ca-50x70-4x6-print.jpg',
+    `offline download saved as ${download.suggestedFilename()}`,
+  )
+  expect(errors.length === 0, `page errors offline: ${errors.join(' | ')}`)
+  await context.close()
+})
+
+await scenario('The page can’t send anything to another site', async (page, expect) => {
+  await page.evaluate(() => {
+    window.__expectViolation = true
+    window.__blocked = []
+    document.addEventListener('securitypolicyviolation', (e) => window.__blocked.push(e.blockedURI))
+  })
+  await page.evaluate(() => fetch('https://example.com/').catch(() => {}))
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const img = new Image()
+        img.onload = img.onerror = resolve
+        img.src = 'https://example.com/pixel.png'
+      }),
+  )
+  await page.waitForTimeout(300)
+  const blocked = await page.evaluate(() => window.__blocked)
+  expect(blocked.filter((u) => u.startsWith('https://example.com')).length === 2, `blocked by the policy: ${JSON.stringify(blocked)}`)
+  await page.evaluate(() => (window.__expectViolation = false))
+})
+
+await scenario('A HEIC photo opens, through libheif where the browser can’t decode it', async (page, expect) => {
+  let libheif = false
+  page.on('request', (r) => r.url().includes('/vendor/libheif/') && (libheif = true))
+  // The HEIC is portrait.jpg re-encoded, so both should give about the same fit; the resolution
+  // shows it was decoded at full size, and finding the face that it's the right way up.
+  const measure = async (file) => {
+    await upload(page, file)
+    const dpi = parseFloat((await page.locator('li.check', { hasText: 'Print resolution' }).innerText()).match(/(\d+) pixels per inch/)[1])
+    return { head: await headSize(page), dpi }
+  }
+  const heic = await measure('portrait.heic')
+  await page.goto(url)
+  const jpeg = await measure('portrait.jpg')
+  expect(Math.abs(heic.head - jpeg.head) <= 0.05, `head ${heic.head} from the HEIC, ${jpeg.head} from the JPEG`)
+  expect(Math.abs(heic.dpi / jpeg.dpi - 1) < 0.03, `${heic.dpi} pixels per inch from the HEIC, ${jpeg.dpi} from the JPEG`)
+  // Only Safari's engine decodes HEIC itself.
+  if (engine !== 'webkit') expect(libheif, `${engine} can’t decode HEIC, but libheif wasn’t loaded`)
+})
+
+await scenario('The photo type, print size and layout are remembered', async (page, expect) => {
+  const layout = async () => {
+    await upload(page, 'portrait.jpg')
+    await page.getByRole('button', { name: /Next: Background/ }).click()
+    await page.getByRole('button', { name: /Next: Print layout/ }).click()
+  }
+  await pickSpec(page, /China Visa(?! Upload)/)
+  await layout()
+  await page.getByRole('radio', { name: /5 × 7 in/ }).click()
+  await page.getByRole('radio', { name: 'With margins' }).click()
+  await page.getByLabel('Draw thin grey cut lines').uncheck()
+  await page.reload()
+  expect(await isChecked(page, /China Visa(?! Upload)/), 'photo type not remembered')
+  await layout()
+  expect(await isChecked(page, /5 × 7 in/), 'print size not remembered')
+  expect(await isChecked(page, 'With margins'), 'layout not remembered')
+  expect(!(await page.getByLabel('Draw thin grey cut lines').isChecked()), 'cut lines not remembered')
+})
+
+await scenario('A ?type= link picks the photo type, and the address follows the choice', async (page, expect) => {
+  await page.goto(`${url}?type=in-online`)
+  expect(await isChecked(page, /India Passport \(Passport Seva\)/), 'the linked photo type isn’t selected')
+  await pickSpec(page, /Canada Visa/)
+  expect(new URL(page.url()).searchParams.get('type') === 'ca-visa', `address is ${page.url()}`)
+  // An unknown type falls back to the one remembered.
+  await page.goto(`${url}?type=nonsense`)
+  expect(await isChecked(page, /Canada Visa/), 'an unknown type didn’t fall back to the remembered one')
+})
+
+await scenario('A pasted photo is used like a chosen one, but not while one is processing', async (page, expect) => {
+  const paste = async (file) => {
+    const b64 = readFileSync(join(images, file)).toString('base64')
+    await page.evaluate(
+      ({ b64, name }) => {
+        const dt = new DataTransfer()
+        dt.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], name, { type: 'image/jpeg' }))
+        window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+      },
+      { b64, name: file },
+    )
+  }
+  let release
+  const held = new Promise((resolve) => (release = resolve))
+  await page.route('**/models/face_landmarker.task', async (route) => {
+    await held
+    await route.continue()
+  })
+  await page.getByTestId('file-input').setInputFiles(join(images, 'portrait.jpg'))
+  await page.getByText(/Loading face detection/).waitFor()
+  await paste('no-face.jpg')
+  release()
+  await page.getByRole('heading', { name: 'Crop & position' }).waitFor({ timeout: 120_000 })
+  await page.waitForTimeout(3000)
+  await page.getByRole('button', { name: '← Back' }).click()
+  await page.waitForTimeout(300)
+  const errors = await page.locator('.alert--error').allInnerTexts()
+  expect(errors.length === 0, `the photo pasted while busy was used: ${errors.join(' ')}`)
+
+  await paste('two-people.jpg')
+  await page
+    .locator('.subject-picker')
+    .waitFor({ timeout: 120_000 })
+    .catch(() => {})
+  expect(await page.locator('.subject-picker').isVisible(), 'pasting a photo did nothing')
+})
+
+await scenario('Share offers the same file as the download, where the browser can share files', async (page, expect) => {
+  // A browser that can share files, with the share sheet replaced by a recorder.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true })
+    Object.defineProperty(navigator, 'share', { value: async (data) => (window.__shared = data), configurable: true })
+  })
+  await page.reload()
+  await upload(page, 'portrait.jpg')
+  await toCheck(page)
+  await acceptAll(page)
+  const share = page.getByRole('button', { name: /^Share/ })
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some((b) => b.textContent.startsWith('Share') && !b.disabled))
+  await share.click()
+  await page.waitForFunction(() => window.__shared)
+  const shared = await page.evaluate(async () => {
+    const file = window.__shared.files[0]
+    const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+    return { name: file.name, type: file.type, sha: [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('') }
+  })
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30_000 }),
+    page.getByRole('button', { name: /print sheet/ }).click(),
+  ])
+  const sha = createHash('sha256')
+    .update(readFileSync(await download.path()))
+    .digest('hex')
+  expect(shared.name === download.suggestedFilename() && shared.type === 'image/jpeg', `shared ${shared.name} (${shared.type})`)
+  expect(shared.sha === sha, 'the shared file differs from the download')
+
+  // Without file sharing, there's no Share button.
+  const plain = await browser.newPage({ serviceWorkers: 'block' })
+  await plain.addInitScript(() => Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true }))
+  await plain.goto(url)
+  await upload(plain, 'portrait.jpg')
+  await toCheck(plain)
+  expect((await plain.getByRole('button', { name: /^Share/ }).count()) === 0, 'a Share button without file sharing')
+  await plain.close()
 })
 
 await browser.close()

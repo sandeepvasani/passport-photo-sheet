@@ -1,21 +1,20 @@
 /** Shared ONNX Runtime Web setup for the models run in the browser. */
 import type { InferenceSession } from 'onnxruntime-web'
+import { assetUrl } from './assets'
 
 type Ort = typeof import('onnxruntime-web')
 
 let ortPromise: Promise<Ort> | null = null
 
-/** URL of a file in public/, respecting the site's base path. */
-export function assetUrl(path: string): string {
-  return new URL(`${import.meta.env.BASE_URL}${path}`, document.baseURI).href
-}
-
 function loadOrt(): Promise<Ort> {
   ortPromise ??= (async () => {
-    // The wasm binary is emitted and served by Vite alongside this chunk.
-    const ort = await import('onnxruntime-web/wasm')
+    // ONNX Runtime's prebuilt file (copied to public/ by scripts/setup-assets.mjs), not bundled:
+    // its worker starts from this same file, and it finds its wasm binary next to it.
+    const ort: Ort = await import(/* @vite-ignore */ assetUrl('vendor/onnxruntime/ort.wasm.bundle.min.mjs'))
     // Multi-threading needs cross-origin isolation; fall back to one thread otherwise.
     ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1
+    // Run the models in ONNX Runtime's own worker, so the page stays responsive while they work.
+    ort.env.wasm.proxy = true
     return ort
   })()
   return ortPromise

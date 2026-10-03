@@ -1,6 +1,5 @@
-// Copies the MediaPipe wasm runtime and downloads the ML models into public/ so
-// the site is fully self-hosted (no third-party requests at runtime). The ONNX
-// Runtime wasm is bundled by Vite itself.
+// Copies the MediaPipe and ONNX Runtime wasm runtimes and downloads the ML models
+// into public/ so the site is fully self-hosted (no third-party requests at runtime).
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
@@ -10,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const wasmSrc = join(root, 'node_modules/@mediapipe/tasks-vision/wasm')
 const wasmDest = join(root, 'public/mediapipe/wasm')
+const vendorDest = join(root, 'public/vendor')
 const modelsDest = join(root, 'public/models')
 
 // Each URL names a fixed version, and the SHA-256 is checked, so every build ships the
@@ -58,6 +58,30 @@ for (const name of await readdir(wasmSrc)) {
   if (name.includes('_module_')) continue
   await copyFile(join(wasmSrc, name), join(wasmDest, name))
 }
+
+// ONNX Runtime is served as its own prebuilt files rather than bundled: it runs the
+// models in a worker started from the same file, which mustn't import the app's bundle.
+await mkdir(join(vendorDest, 'onnxruntime'), { recursive: true })
+for (const name of ['ort.wasm.bundle.min.mjs', 'ort-wasm-simd-threaded.wasm']) {
+  await copyFile(join(root, 'node_modules/onnxruntime-web/dist', name), join(vendorDest, 'onnxruntime', name))
+}
+
+// libheif (LGPL-3.0) decodes HEIC photos in browsers that can't. It's served unmodified as
+// its own file, with its licence and where to get the source, as the LGPL asks.
+const libheifSrc = join(root, 'node_modules/libheif-js')
+const libheifDest = join(vendorDest, 'libheif')
+const { version: libheifVersion } = JSON.parse(await readFile(join(libheifSrc, 'package.json'), 'utf8'))
+await mkdir(libheifDest, { recursive: true })
+await copyFile(join(libheifSrc, 'libheif-wasm/libheif-bundle.mjs'), join(libheifDest, 'libheif-bundle.mjs'))
+await copyFile(join(libheifSrc, 'libheif-wasm/LICENSE'), join(libheifDest, 'LICENSE.txt'))
+await writeFile(
+  join(libheifDest, 'NOTICE.txt'),
+  `libheif-bundle.mjs is libheif-js ${libheifVersion}, an unmodified Emscripten build of libheif:\n` +
+    `  https://github.com/catdad-experiments/libheif-js/tree/${libheifVersion}\n` +
+    '  https://github.com/strukturag/libheif\n' +
+    'libheif is distributed under the GNU Lesser General Public License, version 3: see LICENSE.txt.\n' +
+    'You may replace this file with another build of libheif-js.\n',
+)
 
 await mkdir(modelsDest, { recursive: true })
 for (const { file, url, sha256 } of MODELS) {

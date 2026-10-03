@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { setJpegDpi } from './image'
-import { boxMean, guidedFilter, keepConnected, replaceBackground } from './matting'
+import { boxMean, guidedFilter, keepConnected, refineMatte, replaceBackground, type RefineInput } from './matting'
 
 describe('boxMean', () => {
   it('matches a brute-force mean with edge normalisation', () => {
@@ -77,6 +77,57 @@ describe('keepConnected', () => {
   it('leaves the matte untouched when the seed is not on the subject', () => {
     const alpha = new Float32Array([0, 0, 1, 1])
     expect(keepConnected(alpha, 4, 1, 0, 0, 1)).toBe(alpha)
+  })
+})
+
+describe('refineMatte', () => {
+  const W = 60
+  const H = 40
+  /** A person (warm, left half) against a blue background, with a soft mask; optionally a stray blob in the top-right corner. */
+  function input(extra: Partial<RefineInput> = {}, strayBlob = false): RefineInput {
+    const rgba = new Uint8ClampedArray(W * H * 4)
+    const coarse = new Float32Array(W * H)
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x
+        const person = x < W / 2
+        rgba.set(person ? [200, 150, 120, 255] : [50, 80, 200, 255], i * 4)
+        coarse[i] = Math.min(1, Math.max(0, (W / 2 + 3 - x) / 6))
+        if (strayBlob && x >= W - 6 && y < 6) coarse[i] = 1
+      }
+    }
+    return { rgba, coarse, width: W, height: H, matte: false, feather: 3, scale: 1, expand: 0, ...extra }
+  }
+  const at = (a: Float32Array, x: number, y: number) => a[y * W + x]
+
+  it('keeps the person and drops the background in the matte, and leaves the photo alone', () => {
+    const job = input()
+    const before = job.rgba.slice()
+    const alpha = refineMatte(job)
+    expect(at(alpha, 5, 20)).toBeCloseTo(1, 2)
+    expect(at(alpha, 55, 20)).toBeCloseTo(0, 2)
+    expect(job.rgba).toEqual(before)
+  })
+
+  it('paints the background with the new colour, and leaves the person', () => {
+    const job = input({ replaceWith: [255, 255, 255] })
+    refineMatte(job)
+    expect([...job.rgba.subarray((20 * W + 55) * 4, (20 * W + 55) * 4 + 3)]).toEqual([255, 255, 255])
+    expect([...job.rgba.subarray((20 * W + 5) * 4, (20 * W + 5) * 4 + 3)]).toEqual([200, 150, 120])
+  })
+
+  it('drops a stray blob not connected to the person', () => {
+    expect(at(refineMatte(input({}, true)), W - 3, 2)).toBeGreaterThan(0.5)
+    expect(at(refineMatte(input({ seed: { x: 5, y: 20 } }, true)), W - 3, 2)).toBe(0)
+  })
+
+  it('grows the outline when expanded and shrinks it when tightened', () => {
+    const area = (a: Float32Array) => a.reduce((s, v) => s + v, 0)
+    for (const matte of [false, true]) {
+      const normal = area(refineMatte(input({ matte })))
+      expect(area(refineMatte(input({ matte, expand: 1 }))), `matte: ${matte}`).toBeGreaterThan(normal)
+      expect(area(refineMatte(input({ matte, expand: -1 }))), `matte: ${matte}`).toBeLessThan(normal)
+    }
   })
 })
 

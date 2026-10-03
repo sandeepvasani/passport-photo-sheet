@@ -24,7 +24,7 @@ const out = await page.evaluate(
     const analysis = await vision.analyzePhoto(img)
     const spec = { ...US_PASSPORT, widthMm: img.width / 10, heightMm: img.height / 10 }
     const crop = { cx: img.width / 2, cy: img.height / 2, angle: 0, pxPerMm: 10 }
-    const plain = renderPhoto(img, analysis.masks, crop, spec, { mode: 'replace', color: '#f7f7f5', feather: 6, expand: 0 }, 254)
+    const plain = await renderPhoto(img, analysis.masks, crop, spec, { mode: 'replace', color: '#f7f7f5', feather: 6, expand: 0 }, 254)
 
     const img2 = await loadImageFile(toFile(b))
     const crop2 = createCanvas(600, 600)

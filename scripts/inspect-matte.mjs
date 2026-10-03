@@ -28,7 +28,7 @@ const out = await page.evaluate(
       feather: Number(new URL(location.href).searchParams.get('feather') ?? 5),
       expand: Number(new URL(location.href).searchParams.get('expand') ?? 0),
     }
-    const res = renderPhoto(img, masks, crop, spec, bg, 300, subj)
+    const res = await renderPhoto(img, masks, crop, spec, bg, 300, subj)
     const orig = renderCrop(img, crop, spec, 300 / 25.4)
     // coarse mask through the same transform
     const W = res.width,

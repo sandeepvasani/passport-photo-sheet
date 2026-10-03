@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { formatRange, type PhotoSpec } from '../config/photoSpecs'
 
 export interface UploadError {
@@ -27,6 +27,18 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
     const file = files?.[0]
     if (file) onFile(file)
   }
+
+  // A photo pasted from the clipboard (Ctrl+V or ⌘V) is used like a chosen one; ignored while one is processing.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'))
+      if (!file || busy) return
+      e.preventDefault()
+      onFile(file)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [busy, onFile])
 
   return (
     <div className="step-grid">
@@ -139,7 +151,8 @@ export function UploadStep({ specs, spec, onSpec, onFile, busy, error, hasPhoto,
                   Take photo
                 </button>
               </div>
-              <p className="muted small">JPEG, PNG or WebP. Your photo never leaves this device.</p>
+              <p className="muted small">JPEG, PNG, WebP or HEIC. Your photo never leaves this device.</p>
+              <p className="muted small keyboard-hint">You can also paste a photo (Ctrl+V or ⌘V).</p>
               <p className="muted small mobile-only">
                 Selfies are usually too close to fit a passport frame. Prop the phone up about 4–5 ft (1.2–1.5 m) away and use the timer, or
                 ask someone to take it.

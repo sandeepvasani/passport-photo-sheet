@@ -26,6 +26,10 @@ interface Props {
   onFix: (r: CheckResult) => void
   onDownloadSheet: () => void
   onDownloadPhoto: () => void
+  /** Opens the share sheet with the main download's file; absent when the browser can't share files. */
+  onShare?: () => void
+  /** The file to share has been prepared. */
+  shareReady: boolean
   /** Outcome of the last download: the online-upload file's size, or why a download failed. */
   saved: { text: string; error?: boolean } | null
   onSwitchSpec: (id: string) => void
@@ -197,6 +201,12 @@ export function CheckStep(props: Props) {
                 Download single digital photo ({props.photo.width}×{props.photo.height} px)
               </button>
             </>
+          )}
+          {props.onShare && (
+            <button type="button" className="btn" disabled={!ready || !props.shareReady} onClick={props.onShare}>
+              Share…
+              <span className="btn__sub">Save to Photos, or send it to a print app</span>
+            </button>
           )}
           {props.saved && (
             <p className={`small ${props.saved.error ? 'alert alert--error' : 'muted'}`} role="status">

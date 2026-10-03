@@ -1,7 +1,7 @@
 import type { PhotoSpec } from '../config/photoSpecs'
 import { sourceToFrame, sourceToOutputTransform, type Crop, type Point } from './geometry'
 import { createCanvas, ctx2d, releaseCanvas, type LoadedImage } from './image'
-import { guidedFilter, hexToRgb, keepConnected, levels, replaceBackground, toPlanes } from './matting'
+import { hexToRgb, refineMatte, type RefineInput } from './matting'
 import type { MaskLayer } from './mask'
 
 export interface BackgroundSettings {
@@ -23,12 +23,104 @@ export interface RenderedPhoto {
   pxPerMm: number
 }
 
+/** A render that a newer one replaced before it started; its result isn't needed. */
+export class Superseded extends Error {
+  constructor() {
+    super('Replaced by a newer render')
+  }
+}
+
+interface Refined {
+  rgba: Uint8ClampedArray<ArrayBuffer>
+  alpha: Float32Array
+}
+
+// The edge refinement runs in a worker, one job at a time. undefined: not started yet; null: unavailable.
+let worker: Worker | null | undefined
+let call: { id: number; resolve: (r: Refined) => void; reject: (e: Error) => void } | null = null
+let lastId = 0
+let running = false
+const queue: { input: RefineInput; replaceable: boolean; resolve: (r: Refined) => void; reject: (e: Error) => void }[] = []
+
+/** Thrown when the worker itself can't run, so the job is done on the main thread instead. */
+class WorkerUnavailable extends Error {}
+
+function getWorker(): Worker | null {
+  if (worker !== undefined) return worker
+  try {
+    worker = new Worker(new URL('./refine.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (e: MessageEvent<{ id: number; error?: string } & Refined>) => {
+      if (!call || e.data.id !== call.id) return
+      const { resolve, reject } = call
+      call = null
+      if (e.data.error) reject(new Error(e.data.error))
+      else resolve({ rgba: e.data.rgba, alpha: e.data.alpha })
+    }
+    worker.onerror = (e) => {
+      // It didn't load (an old browser, say): do the work on the main thread from now on.
+      e.preventDefault()
+      worker = null
+      call?.reject(new WorkerUnavailable())
+      call = null
+    }
+  } catch {
+    worker = null
+  }
+  return worker
+}
+
+async function runJob(input: RefineInput): Promise<Refined> {
+  const w = getWorker()
+  if (w) {
+    try {
+      // Copied rather than transferred, so the input is still here if the worker fails.
+      return await new Promise<Refined>((resolve, reject) => {
+        call = { id: ++lastId, resolve, reject }
+        w.postMessage({ id: call.id, input })
+      })
+    } catch (err) {
+      if (!(err instanceof WorkerUnavailable)) throw err
+    }
+  }
+  return { rgba: input.rgba, alpha: refineMatte(input) }
+}
+
+/**
+ * Refines off the main thread. A `replaceable` job (a render for the screen) that hasn't
+ * started yet is dropped for a newer one, say while a slider moves, and rejects with Superseded.
+ */
+function refine(input: RefineInput, replaceable: boolean): Promise<Refined> {
+  return new Promise((resolve, reject) => {
+    if (replaceable) {
+      for (const job of queue.filter((j) => j.replaceable)) {
+        queue.splice(queue.indexOf(job), 1)
+        job.reject(new Superseded())
+      }
+    }
+    queue.push({ input, replaceable, resolve, reject })
+    pump()
+  })
+}
+
+function pump() {
+  const job = running ? undefined : queue.shift()
+  if (!job) return
+  running = true
+  runJob(job.input)
+    .then(job.resolve, job.reject)
+    .finally(() => {
+      running = false
+      pump()
+    })
+}
+
 /**
  * Renders the finished passport photo at `dpi`, optionally replacing the background.
  * `subject` (source pixels, e.g. between the eyes) anchors the matte so only the
- * region connected to the person is kept.
+ * region connected to the person is kept. With `replaceable` (renders for the screen), it
+ * rejects with Superseded if a newer replaceable render is asked for before it starts.
  */
-export function renderPhoto(
+export async function renderPhoto(
   image: LoadedImage,
   masks: MaskLayer[],
   crop: Crop,
@@ -36,7 +128,8 @@ export function renderPhoto(
   bg: BackgroundSettings,
   dpi: number,
   subject?: Point,
-): RenderedPhoto {
+  { replaceable = false } = {},
+): Promise<RenderedPhoto> {
   const k = dpi / 25.4
   const W = Math.round(spec.widthMm * k)
   const H = Math.round(spec.heightMm * k)
@@ -68,33 +161,30 @@ export function renderPhoto(
   const coarse = new Float32Array(W * H)
   for (let i = 0; i < coarse.length; i++) coarse[i] = md[i * 4] / 255
 
-  const img = ctx.getImageData(0, 0, W, H)
-  const scale = dpi / 300
-  const shift = bg.expand * 0.3
-  let alpha: Float32Array
-  let radius: number
-  if (masks.some((m) => m.kind === 'matte')) {
-    // A true matte already has soft hair edges: only snap it lightly to the
-    // full-resolution image and trim faint noise, so thin strands survive.
-    radius = Math.round(bg.feather * 0.4 * scale)
-    const refined = radius > 0 ? guidedFilter(toPlanes(img.data), coarse, W, H, radius, 1e-4) : coarse
-    alpha = levels(refined, 0.05 - shift, 0.95 - shift)
-  } else {
-    // Coarse segmentation: snap edges to the image and harden the transition.
-    radius = Math.max(1, Math.round(bg.feather * scale))
-    const refined = guidedFilter(toPlanes(img.data), coarse, W, H, radius, 2e-3)
-    alpha = levels(refined, 0.25 - shift, 0.75 - shift)
+  const s = subject && sourceToFrame(subject, crop, spec)
+  let refined: Refined
+  try {
+    refined = await refine(
+      {
+        rgba: ctx.getImageData(0, 0, W, H).data,
+        coarse,
+        width: W,
+        height: H,
+        matte: masks.some((m) => m.kind === 'matte'),
+        feather: bg.feather,
+        scale: dpi / 300,
+        expand: bg.expand,
+        seed: s && { x: s.x * k, y: s.y * k },
+        replaceWith: bg.mode === 'replace' ? hexToRgb(bg.color) : undefined,
+      },
+      replaceable,
+    )
+  } catch (err) {
+    releaseCanvas(canvas)
+    throw err
   }
-  if (subject) {
-    const s = sourceToFrame(subject, crop, spec)
-    alpha = keepConnected(alpha, W, H, s.x * k, s.y * k, Math.max(2, radius * 2))
-  }
-
-  if (bg.mode === 'replace') {
-    replaceBackground(img.data, alpha, W, H, hexToRgb(bg.color), Math.max(8, radius * 3))
-    ctx.putImageData(img, 0, 0)
-  }
-  return { canvas, alpha, width: W, height: H, pxPerMm: k }
+  if (bg.mode === 'replace') ctx.putImageData(new ImageData(refined.rgba, W, H), 0, 0)
+  return { canvas, alpha: refined.alpha, width: W, height: H, pxPerMm: k }
 }
 
 /** Draws just the cropped source (no matting) — used for quick previews. */

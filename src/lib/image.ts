@@ -1,3 +1,5 @@
+import { assetUrl } from './assets'
+
 export interface LoadedImage {
   /** Working copy (EXIF-rotated, capped at MAX_WORKING_SIDE). */
   canvas: HTMLCanvasElement
@@ -70,17 +72,60 @@ async function decode(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
   }
 }
 
+/** HEIF brands (bytes 8–12, after "ftyp") used by HEIC photos. */
+const HEIF_BRANDS = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'mif1', 'msf1']
+
+async function isHeic(file: File): Promise<boolean> {
+  if (/\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)) return true
+  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  const text = String.fromCharCode(...head)
+  return text.slice(4, 8) === 'ftyp' && HEIF_BRANDS.includes(text.slice(8, 12))
+}
+
+interface HeifImage {
+  get_width(): number
+  get_height(): number
+  is_primary(): boolean
+  display(target: ImageData, done: (result: ImageData | null) => void): void
+  free(): void
+}
+
+/**
+ * Decodes a HEIC photo in browsers that can't (Safari can) with libheif (LGPL-3.0), which
+ * is served as its own unmodified file (see scripts/setup-assets.mjs) and only loaded here.
+ */
+async function decodeHeic(file: File): Promise<HTMLCanvasElement> {
+  const { default: load } = await import(/* @vite-ignore */ assetUrl('vendor/libheif/libheif-bundle.mjs'))
+  const libheif = load()
+  const images: HeifImage[] = new libheif.HeifDecoder().decode(new Uint8Array(await file.arrayBuffer()))
+  try {
+    const image = images.find((i) => i.is_primary()) ?? images[0]
+    if (!image) throw new Error('No image in the HEIC file')
+    const canvas = createCanvas(image.get_width(), image.get_height())
+    const ctx = ctx2d(canvas)
+    const pixels = ctx.createImageData(canvas.width, canvas.height)
+    await new Promise<void>((resolve, reject) => image.display(pixels, (r) => (r ? resolve() : reject(new Error('HEIC decoding failed')))))
+    ctx.putImageData(pixels, 0, 0)
+    return canvas
+  } finally {
+    for (const i of images) i.free()
+  }
+}
+
 export async function loadImageFile(file: File): Promise<LoadedImage> {
-  let src: ImageBitmap | HTMLImageElement
+  let src: ImageBitmap | HTMLImageElement | HTMLCanvasElement
   try {
     src = await decode(file)
   } catch {
-    const heic = /\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)
-    throw new Error(
-      heic
-        ? 'This browser can’t open HEIC photos. Use Safari, or export the photo as JPEG (on iPhone: Settings → Camera → Formats → Most Compatible).'
-        : 'That file couldn’t be opened as an image. Try a JPEG or PNG.',
-    )
+    if (!(await isHeic(file))) throw new Error('That file couldn’t be opened as an image. Try a JPEG or PNG.')
+    try {
+      src = await decodeHeic(file)
+    } catch (err) {
+      console.error(err)
+      throw new Error(
+        'This HEIC photo couldn’t be opened. Export it as JPEG and try again (on iPhone: Settings → Camera → Formats → Most Compatible).',
+      )
+    }
   }
   const ow = 'naturalWidth' in src ? src.naturalWidth : src.width
   const oh = 'naturalHeight' in src ? src.naturalHeight : src.height
@@ -89,7 +134,8 @@ export async function loadImageFile(file: File): Promise<LoadedImage> {
   const ctx = ctx2d(canvas)
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(src, 0, 0, canvas.width, canvas.height)
-  if ('close' in src) src.close()
+  if (src instanceof HTMLCanvasElement) releaseCanvas(src)
+  else if ('close' in src) src.close()
   const preview = await makePreview(canvas)
   return { canvas, width: canvas.width, height: canvas.height, preview }
 }

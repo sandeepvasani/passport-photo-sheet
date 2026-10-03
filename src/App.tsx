@@ -6,10 +6,10 @@ import { CropStep } from './components/CropStep'
 import { LayoutStep } from './components/LayoutStep'
 import { UploadStep, type UploadError } from './components/UploadStep'
 import { PHOTO_SPECS, type PhotoSpec } from './config/photoSpecs'
-import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES } from './config/printSizes'
+import { DEFAULT_PRINT_SIZE_ID, PRINT_DPI, PRINT_SIZES, type PrintSize } from './config/printSizes'
 import { backgroundCheck, retakeIssues, runChecks, type CheckResult } from './lib/checks'
 import { scoreExpression, type ExpressionScores } from './lib/expression'
-import { autoFit, midpoint, type Crop, type Markers } from './lib/geometry'
+import { autoFit, midpoint, type Crop, type Markers, type Point } from './lib/geometry'
 import {
   canvasToJpeg,
   canvasToJpegSized,
@@ -23,7 +23,9 @@ import {
 import { computeLayout, type LayoutMode } from './lib/layout'
 import type { MaskLayer } from './lib/mask'
 import { matteCovers, portraitMatte } from './lib/matte'
-import { renderCrop, renderPhoto, type BackgroundSettings } from './lib/render'
+import { renderCrop, renderPhoto, Superseded, type BackgroundSettings, type RenderedPhoto } from './lib/render'
+import { registerServiceWorker } from './lib/serviceWorker'
+import { SETTINGS_KEY, startingSettings, type Settings } from './settings'
 import { renderSheet } from './lib/sheet'
 import type { FaceAnalysis } from './lib/vision'
 import { fixStep, type StepId } from './steps'
@@ -41,6 +43,16 @@ interface Session {
   analysis: FaceAnalysis
 }
 
+/** A finished photo, and what it was rendered from. */
+interface Rendered {
+  photo: RenderedPhoto
+  session: Session
+  spec: PhotoSpec
+  crop: Crop
+  bg: BackgroundSettings
+  masks: MaskLayer[]
+}
+
 const defaultBackground = (spec: PhotoSpec): BackgroundSettings => ({
   mode: 'original',
   color: spec.backgrounds[0].color,
@@ -49,6 +61,25 @@ const defaultBackground = (spec: PhotoSpec): BackgroundSettings => ({
 })
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+
+function readStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+/** The browser can share files through the system share sheet. */
+const canShareFiles = () =>
+  typeof navigator.canShare === 'function' && navigator.canShare({ files: [new File([''], 'photo.jpg', { type: 'image/jpeg' })] })
+
+/** A download: the file, its name, and its size and pixels for online forms. */
+interface SavedFile {
+  blob: Blob
+  name: string
+  about?: string
+}
 
 /** The browser is set to use less data (Data Saver in Chrome and on Android). */
 const saveData = () => !!(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
@@ -63,8 +94,39 @@ const NO_FACE_ERROR: UploadError = {
   ],
 }
 
+/**
+ * The file a download or share gives: the print sheet, or the single photo (for online forms,
+ * rendered straight from the original at the exact pixel size, from the crop and background on screen).
+ */
+async function makeFile(
+  kind: 'sheet' | 'photo',
+  from: Rendered,
+  sheet: HTMLCanvasElement | null,
+  spec: PhotoSpec,
+  print: PrintSize,
+  subject: Point | undefined,
+): Promise<SavedFile> {
+  const digital = spec.digital
+  if (kind === 'sheet' || !digital) {
+    const canvas = kind === 'sheet' ? sheet : from.photo.canvas
+    if (!canvas) throw new Error('The print sheet isn’t ready yet.')
+    const name = kind === 'sheet' ? `passport-photo-${spec.id}-${print.id}-print.jpg` : `passport-photo-${spec.id}-digital.jpg`
+    return { blob: await canvasToJpeg(canvas, PRINT_DPI), name }
+  }
+  const dpi = (digital.widthPx / spec.widthMm) * 25.4
+  const out = await renderPhoto(from.session.image, from.masks, from.crop, spec, from.bg, dpi, subject)
+  try {
+    const blob = await canvasToJpegSized(out.canvas, Math.round(dpi), digital.maxBytes, digital.minBytes)
+    const about = `${out.width} × ${out.height} px JPEG, ${Math.ceil(blob.size / 1000)} KB`
+    return { blob, name: `passport-photo-${spec.id}-${out.width}x${out.height}.jpg`, about }
+  } finally {
+    releaseCanvas(out.canvas)
+  }
+}
+
 export default function App() {
-  const [specId, setSpecId] = useState(PHOTO_SPECS[0].id)
+  const [initial] = useState(() => startingSettings(readStorage(SETTINGS_KEY), location.search))
+  const [specId, setSpecId] = useState(initial.specId)
   const spec = PHOTO_SPECS.find((s) => s.id === specId) ?? PHOTO_SPECS[0]
   /** The photo only goes into an online form, so there's no print layout step. */
   const uploadOnly = !!spec.digital?.uploadOnly
@@ -74,11 +136,24 @@ export default function App() {
   const [crop, setCrop] = useState<Crop | null>(null)
   const [autoRefit, setAutoRefit] = useState(true)
   const [bg, setBg] = useState<BackgroundSettings>(() => defaultBackground(spec))
-  const [printId, setPrintId] = useState(spec.defaultPrintSizeId ?? DEFAULT_PRINT_SIZE_ID)
+  const [printId, setPrintId] = useState(initial.printId ?? spec.defaultPrintSizeId ?? DEFAULT_PRINT_SIZE_ID)
   /** Once the user picks a print size, switching photo type no longer changes it. */
-  const [printChosen, setPrintChosen] = useState(false)
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>('auto')
-  const [cutGuides, setCutGuides] = useState(true)
+  const [printChosen, setPrintChosen] = useState(initial.printId !== null)
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(initial.layoutMode)
+  const [cutGuides, setCutGuides] = useState(initial.cutGuides)
+  // Remember the settings for next time, and keep the photo type in the address so the link can be shared.
+  useEffect(() => {
+    const settings: Settings = { specId, printId: printChosen ? printId : null, layoutMode, cutGuides }
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
+    } catch {
+      // Storage blocked or full: they just aren't remembered.
+    }
+    const url = new URL(location.href)
+    if (url.searchParams.get('type') === specId) return
+    url.searchParams.set('type', specId)
+    history.replaceState(history.state, '', url)
+  }, [specId, printId, printChosen, layoutMode, cutGuides])
   const [attest, setAttest] = useState<Record<string, boolean>>({})
   const [ackWarnings, setAckWarnings] = useState<string | null>(null)
   const [ackFailures, setAckFailures] = useState<string | null>(null)
@@ -151,18 +226,44 @@ export default function App() {
     () => (session ? (deferredBg.mode === 'replace' && matte ? [...session.analysis.masks, matte.layer] : session.analysis.masks) : []),
     [session, deferredBg.mode, matte],
   )
-  const photo = useMemo(
-    () =>
-      session && deferredCrop && needsRender ? renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, PRINT_DPI, subject) : null,
-    [session, masks, deferredCrop, spec, deferredBg, needsRender, subject],
-  )
+  /** The last finished photo, and what it was rendered from. */
+  const [rendered, setRendered] = useState<Rendered | null>(null)
+  const [renderError, setRenderError] = useState<unknown>(null)
+  // Rendering is asynchronous (the edge refinement runs in a worker).
+  useEffect(() => {
+    if (!session || !deferredCrop || !needsRender) return
+    let cancelled = false
+    const [crop, bg] = [deferredCrop, deferredBg]
+    renderPhoto(session.image, masks, crop, spec, bg, PRINT_DPI, subject, { replaceable: true }).then(
+      (photo) => (cancelled ? releaseCanvas(photo.canvas) : setRendered({ photo, session, spec, crop, bg, masks })),
+      (err) => !cancelled && !(err instanceof Superseded) && setRenderError(err),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [session, masks, deferredCrop, spec, deferredBg, needsRender, subject])
+  // A failed render shows the error screen, as it did when rendering was synchronous.
+  if (renderError) throw renderError
+  // The photo that's shown, checked and downloaded, with the crop and background it was rendered from.
+  // While new background settings render, the previous photo stays; a different crop waits for its own.
+  const shown =
+    rendered && needsRender && rendered.session === session && rendered.spec === spec && rendered.crop === deferredCrop ? rendered : null
+  const photo = shown?.photo ?? null
   const originalPreview = useMemo(
     () => (session && crop && step === 'background' ? renderCrop(session.image, crop, spec, 6) : null),
     [session, crop, spec, step],
   )
   const bgResult = useMemo(
-    () => (photo ? backgroundCheck(photo, ctx2d(photo.canvas).getImageData(0, 0, photo.width, photo.height).data, spec, deferredBg) : null),
-    [photo, spec, deferredBg],
+    () =>
+      shown
+        ? backgroundCheck(
+            shown.photo,
+            ctx2d(shown.photo.canvas).getImageData(0, 0, shown.photo.width, shown.photo.height).data,
+            spec,
+            shown.bg,
+          )
+        : null,
+    [shown, spec],
   )
   const layout = useMemo(() => computeLayout(spec, print, layoutMode), [spec, print, layoutMode])
   // Upload-only photo types are never printed, so they don't get a sheet.
@@ -175,19 +276,19 @@ export default function App() {
   )
   const results = useMemo(
     () =>
-      session && markers && deferredCrop && photo && step === 'check'
+      session && markers && shown && step === 'check'
         ? runChecks({
             spec,
             image: session.image,
             analysis: session.analysis,
             markers,
-            crop: deferredCrop,
-            bg: deferredBg,
-            photo,
+            crop: shown.crop,
+            bg: shown.bg,
+            photo: shown.photo,
             expression: expressionScores,
           })
         : [],
-    [session, markers, deferredCrop, photo, spec, deferredBg, step, expressionScores],
+    [session, markers, shown, spec, step, expressionScores],
   )
 
   // Free canvas memory as soon as something is replaced (iOS Safari caps the total).
@@ -202,7 +303,8 @@ export default function App() {
     for (const layer of prev.analysis.masks) if (!kept.has(layer)) releaseCanvas(layer.canvas)
   }, [session])
   useEffect(() => () => releaseCanvas(matte?.layer.canvas), [matte])
-  useEffect(() => () => releaseCanvas(photo?.canvas), [photo])
+  // Freed when replaced (not when hidden on the Crop step: going back with the same crop shows it again).
+  useEffect(() => () => releaseCanvas(rendered?.photo.canvas), [rendered])
   useEffect(() => () => releaseCanvas(sheet), [sheet])
   useEffect(() => () => releaseCanvas(originalPreview), [originalPreview])
 
@@ -211,14 +313,20 @@ export default function App() {
   const focusedStep = useRef(step)
   useEffect(() => {
     if (focusedStep.current === step) return
-    focusedStep.current = step
     const heading = mainRef.current?.querySelector('h2')
+    // The step may still be preparing (the Check step waits for the photo): try again after the next render.
     if (!heading) return
+    focusedStep.current = step
     heading.tabIndex = -1
     heading.focus({ preventScroll: true })
-  }, [step])
+  })
+
+  // The service worker's first-visit reload is fine until a photo is chosen (settings are remembered).
+  const photoChosen = useRef(false)
+  useEffect(() => registerServiceWorker(() => !photoChosen.current), [])
 
   const handleFile = async (file: File) => {
+    photoChosen.current = true
     setError(null)
     setBusy('Opening photo…')
     try {
@@ -301,32 +409,39 @@ export default function App() {
   }
 
   const download = async (kind: 'sheet' | 'photo') => {
-    if (!photo || !session || !deferredCrop) return
-    const digital = spec.digital
+    if (!shown || (kind === 'sheet' && !sheet)) return
     try {
-      if (kind === 'sheet' || !digital) {
-        const canvas = kind === 'sheet' ? sheet : photo.canvas
-        if (!canvas) return
-        const blob = await canvasToJpeg(canvas, PRINT_DPI)
-        downloadBlob(blob, kind === 'sheet' ? `passport-photo-${spec.id}-${print.id}-print.jpg` : `passport-photo-${spec.id}-digital.jpg`)
-        // A download that works clears an earlier failure message.
-        setSaved((s) => (s?.error ? null : s))
-        return
-      }
-      // Rendered straight from the original at the exact pixel size, not resized from the print version.
-      const dpi = (digital.widthPx / spec.widthMm) * 25.4
-      const out = renderPhoto(session.image, masks, deferredCrop, spec, deferredBg, dpi, subject)
-      try {
-        const blob = await canvasToJpegSized(out.canvas, Math.round(dpi), digital.maxBytes, digital.minBytes)
-        downloadBlob(blob, `passport-photo-${spec.id}-${out.width}x${out.height}.jpg`)
-        setSaved({ text: `Saved: ${out.width} × ${out.height} px JPEG, ${Math.ceil(blob.size / 1000)} KB.` })
-      } finally {
-        releaseCanvas(out.canvas)
-      }
+      const file = await makeFile(kind, shown, sheet, spec, print, subject)
+      downloadBlob(file.blob, file.name)
+      // A download that works clears an earlier failure message.
+      setSaved((s) => (file.about ? { text: `Saved: ${file.about}.` } : s?.error ? null : s))
     } catch (e) {
       console.error(e)
       setSaved({ text: e instanceof Error ? e.message : 'Couldn’t save the photo.', error: true })
     }
+  }
+
+  // The system share sheet (on phones, and some computers) can save the file to Photos or send it to a
+  // print app. It only opens straight from a tap, so the main download's file is made beforehand.
+  const shareKind = spec.digital ? 'photo' : 'sheet'
+  const [shareable, setShareable] = useState<{ file: File; for: [Rendered, HTMLCanvasElement | null] } | null>(null)
+  useEffect(() => {
+    if (step !== 'check' || !shown || !canShareFiles() || (shareKind === 'sheet' && !sheet)) return
+    let cancelled = false
+    makeFile(shareKind, shown, sheet, spec, print, subject).then(
+      ({ blob, name }) => !cancelled && setShareable({ file: new File([blob], name, { type: 'image/jpeg' }), for: [shown, sheet] }),
+      (err) => console.warn('Couldn’t prepare the file to share', err),
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [step, shown, sheet, shareKind, spec, print, subject])
+  const shareFile = shareable && shareable.for[0] === shown && shareable.for[1] === sheet ? shareable.file : null
+  const share = () => {
+    if (!shareFile) return
+    navigator.share({ files: [shareFile], title: `${spec.label} photo` }).catch((err: Error) => {
+      if (err.name !== 'AbortError') setSaved({ text: `Couldn’t share the file: ${err.message}`, error: true })
+    })
   }
 
   const onFix = (r: CheckResult) => goto(fixStep(r.id))
@@ -436,6 +551,14 @@ export default function App() {
             onNext={() => goto('check')}
           />
         )}
+        {step === 'check' && session && !(photo && (sheet || uploadOnly)) && (
+          <div className="panel">
+            <div className="dropzone__busy" role="status">
+              <span className="spinner" aria-hidden />
+              Preparing your photo…
+            </div>
+          </div>
+        )}
         {step === 'check' && session && photo && (sheet || uploadOnly) && (
           <CheckStep
             spec={spec}
@@ -454,6 +577,8 @@ export default function App() {
             onFix={onFix}
             onDownloadSheet={() => download('sheet')}
             onDownloadPhoto={() => download('photo')}
+            onShare={canShareFiles() ? share : undefined}
+            shareReady={!!shareFile}
             saved={saved}
             onSwitchSpec={(id) => {
               changeSpec(id)

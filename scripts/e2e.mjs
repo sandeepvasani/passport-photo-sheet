@@ -5,26 +5,30 @@
 import { statSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { chromium, webkit } from 'playwright'
+import { chromium, firefox, webkit } from 'playwright'
 
 const [, , imagePath = 'test-images/portrait.jpg', specId = 'us-2x2', printLabel = '4 × 6'] = process.argv
 const url = process.env.APP_URL ?? 'http://localhost:4173/'
 const out = join(
   'e2e-output',
-  `${basename(imagePath).replace(/\.\w+$/, '')}-${specId}${process.env.MOBILE ? '-mobile' : ''}${process.env.ENGINE === 'webkit' ? '-webkit' : ''}`,
+  `${basename(imagePath).replace(/\.\w+$/, '')}-${specId}${process.env.MOBILE ? '-mobile' : ''}${process.env.ENGINE ? `-${process.env.ENGINE}` : ''}`,
 )
 await mkdir(out, { recursive: true })
 
-// ENGINE=webkit runs Safari's engine; otherwise installed Chrome (PW_CHANNEL=bundled for Playwright's Chromium).
+// ENGINE=webkit runs Safari's engine and ENGINE=firefox Firefox's; otherwise installed Chrome
+// (PW_CHANNEL=bundled for Playwright's Chromium).
+const engine = process.env.ENGINE ?? 'chromium'
 const browser =
-  process.env.ENGINE === 'webkit'
-    ? await webkit.launch()
-    : await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
-const page = await browser.newPage(
-  process.env.MOBILE
+  engine === 'chromium'
+    ? await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
+    : await { firefox, webkit }[engine].launch()
+// The service worker is left out: its first-visit reload would interrupt the walkthrough (e2e-scenarios.mjs covers it).
+const page = await browser.newPage({
+  serviceWorkers: 'block',
+  ...(process.env.MOBILE
     ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, acceptDownloads: true }
-    : { viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1, acceptDownloads: true },
-)
+    : { viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1, acceptDownloads: true }),
+})
 const errors = []
 page.on('pageerror', (e) => errors.push(e.message))
 page.on('console', (m) => m.type() === 'error' && !m.text().startsWith('INFO:') && errors.push(m.text()))
