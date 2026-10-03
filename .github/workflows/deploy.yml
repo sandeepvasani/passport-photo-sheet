@@ -35,12 +35,14 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
-      # The end-to-end scenarios, in the runner's Chrome, against the built site.
+      # The end-to-end scenarios against the built site: in the runner's Chrome, then in Playwright's Firefox.
       - name: Browser scenarios
         run: |
           npx vite preview --port 4173 --strictPort &
           for i in $(seq 30); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 1; done
           npm run e2e:scenarios
+          npx playwright install --with-deps firefox
+          ENGINE=firefox npm run e2e:scenarios
       - if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:
