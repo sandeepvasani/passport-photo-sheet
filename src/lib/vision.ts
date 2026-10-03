@@ -94,9 +94,23 @@ self.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
 
 let modelsPromise: Promise<Models> | null = null
 
+/** MediaPipe passes the photo to its models through WebGL, even when they run on the CPU. */
+function hasWebGL(): boolean {
+  const canvas = document.createElement('canvas')
+  const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl')
+  gl?.getExtension('WEBGL_lose_context')?.loseContext()
+  return !!gl
+}
+
 export function loadModels(): Promise<Models> {
   if (!modelsPromise) {
     modelsPromise = (async () => {
+      // Without it MediaPipe fails with an obscure error ("GLctx is undefined"), so say what's wrong.
+      if (!hasWebGL()) {
+        throw new Error(
+          'Face detection needs WebGL, which is turned off or unavailable in this browser. Turn it on (in Firefox: about:config, webgl.disabled = false), or use another browser.',
+        )
+      }
       const fileset = await FilesetResolver.forVisionTasks(`${BASE}mediapipe/wasm`)
       const [face, segmenter] = await Promise.all([
         FaceLandmarker.createFromOptions(fileset, {

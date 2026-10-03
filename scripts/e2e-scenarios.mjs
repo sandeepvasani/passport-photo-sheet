@@ -861,6 +861,23 @@ await scenario('MediaPipe’s usage statistics aren’t sent to Google', async (
   await page.waitForTimeout(1000)
   expect(sent.length === 0, `sent: ${sent.join(', ')}`)
 })
+await scenario('Without WebGL, the page says face detection needs it', async (page, expect) => {
+  await page.addInitScript(() => {
+    for (const Canvas of [HTMLCanvasElement, OffscreenCanvas]) {
+      const getContext = Canvas.prototype.getContext
+      Canvas.prototype.getContext = function (type, ...rest) {
+        return /webgl/.test(type) ? null : getContext.call(this, type, ...rest)
+      }
+    }
+  })
+  await page.goto(url)
+  await page.getByTestId('file-input').setInputFiles(join(images, 'portrait.jpg'))
+  const alert = page.locator('.alert--error')
+  await alert.waitFor({ timeout: 60_000 }).catch(() => {})
+  const text = (await alert.count()) ? await alert.innerText() : ''
+  expect(text.includes('Face detection needs WebGL'), `the page showed: ${text || 'nothing'}`)
+})
+
 
 await browser.close()
 const failed = results.filter((r) => r.fails.length)

@@ -99,6 +99,7 @@ src/
 - The US State Department asks for the original, unedited photo and lists a digitally replaced background as unacceptable. For a US passport, the reliable path is a photo taken against a plain white wall or sheet, with the original background kept.
 - The US eye-height range (1⅛–1⅜ in) isn't on the current State Department page, so it's only a positioning guideline here. Head size (1–1⅜ in) is enforced.
 - India's VFS sheet gives the eye height as "1⅛ to 1⅓ in", which is probably a typo for 1⅜. The app enforces 1⅛–1⅓ in, which satisfies both readings. India also requires plain, coloured (non-white) clothing; the app warns when clothing looks white but can't detect patterns.
+- Face detection needs WebGL: MediaPipe passes the photo to its models through it, even on the CPU. Browsers with WebGL turned off (some privacy-hardened setups) get a message saying so.
 - MODNet can misjudge dark areas inside clothing, such as a collar opening, as background. Check the result before printing.
 - Canadian paper applications need a photographer's stamp on the back of one photo.
 - Edge-to-edge layouts depend on the printer not trimming the paper edges. Use "With margins" if that is a concern.
