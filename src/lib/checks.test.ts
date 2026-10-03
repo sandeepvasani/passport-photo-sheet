@@ -205,9 +205,11 @@ describe('expressionCheck', () => {
     expect(expressionCheck(INTL_35X45, relaxed, closedMouth, null).status).toBe('pass')
   })
 
-  it('waits for the expression model, unless something is already wrong', () => {
+  it('waits for the expression model, showing what it has found so far', () => {
     expect(expressionCheck(INTL_35X45, relaxed, closedMouth, 'pending').status).toBe('pending')
-    expect(expressionCheck(INTL_35X45, relaxed, openMouth, 'pending').status).toBe('warn')
+    const r = expressionCheck(INTL_35X45, relaxed, openMouth, 'pending')
+    expect(r.status).toBe('pending')
+    expect(r.detail).toContain('lips look parted')
   })
 })
 

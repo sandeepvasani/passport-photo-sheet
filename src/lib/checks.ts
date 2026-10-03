@@ -545,10 +545,12 @@ export function expressionCheck(
   }
   if ((blendshapes.mouthPucker ?? 0) > PUCKER_LIMIT) issues.push('Your lips look pushed forward (a pout or “duck face”). Relax your mouth.')
 
-  if (issues.length) return { id: 'expression', label, status: 'warn', detail: issues.join(' ') }
   if (scores === 'pending') {
-    return { id: 'expression', label, status: 'pending', detail: 'Checking for frowns, raised eyebrows and other expressions…' }
+    // Wait for the model even if something is already wrong, so its findings aren't missed.
+    const checking = 'Checking for frowns, raised eyebrows and other expressions…'
+    return { id: 'expression', label, status: 'pending', detail: [...issues, checking].join(' ') }
   }
+  if (issues.length) return { id: 'expression', label, status: 'warn', detail: issues.join(' ') }
   return { id: 'expression', label, status: 'pass', detail: neutral ? 'Expression looks neutral' : 'Expression looks natural, mouth closed' }
 }
 
@@ -594,7 +596,8 @@ export function retakeIssues(
   return [
     faceCountCheck(analysis, crop, spec),
     ...eyewearChecks(spec, analysis.eyewear),
-    expressionCheck(spec, bs, analysis.landmarks, expression),
+    // What the face mesh found can be shown while the expression model still loads.
+    expressionCheck(spec, bs, analysis.landmarks, expression === 'pending' ? null : expression),
     ...(eyesOpen ? [gazeCheck(gazeOffset(analysis.landmarks))] : []),
   ].filter((r) => r.status === 'warn' || r.status === 'fail')
 }

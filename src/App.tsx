@@ -83,7 +83,7 @@ export default function App() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('auto')
   const [cutGuides, setCutGuides] = useState(true)
   const [attest, setAttest] = useState<Record<string, boolean>>({})
-  const [ackWarnings, setAckWarnings] = useState(false)
+  const [ackWarnings, setAckWarnings] = useState<string | null>(null)
   const [ackFailures, setAckFailures] = useState<string | null>(null)
   /** Result of the last online-upload download (file size, or why it failed). */
   const [saved, setSaved] = useState<{ text: string; error?: boolean } | null>(null)
@@ -220,7 +220,7 @@ export default function App() {
       setMatte(null)
       setMatteFailedFor(null)
       setAttest({})
-      setAckWarnings(false)
+      setAckWarnings(null)
       setAckFailures(null)
       setSaved(null)
       setStep('crop')
@@ -240,7 +240,7 @@ export default function App() {
     if (markers) setCrop(autoFit(markers, next, session?.image))
     setBg((b) => ({ ...b, color: next.backgrounds[0].color }))
     setAttest({})
-    setAckWarnings(false)
+    setAckWarnings(null)
     setAckFailures(null)
     setSaved(null)
   }
@@ -256,7 +256,7 @@ export default function App() {
       setSession({ image: session.image, analysis })
       setMarkers(analysis.markers)
       setCrop(autoFit(analysis.markers, spec, session.image))
-      setAckWarnings(false)
+      setAckWarnings(null)
       setAckFailures(null)
     } finally {
       setSubjectBusy(false)

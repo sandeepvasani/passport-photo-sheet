@@ -14,8 +14,9 @@ interface Props {
   photoCount: number
   attest: Record<string, boolean>
   onAttest: (id: string, v: boolean) => void
-  ackWarnings: boolean
-  onAckWarnings: (v: boolean) => void
+  /** The warnings (as `warningKey`) the user reviewed. */
+  ackWarnings: string | null
+  onAckWarnings: (key: string | null) => void
   /** Ids of the failed checks the user chose to download anyway (as `failureKey`). */
   ackFailures: string | null
   onAckFailures: (key: string | null) => void
@@ -37,7 +38,9 @@ export function CheckStep(props: Props) {
   // Ticking applies to the failures shown: a new one (after going back to edit) needs a new tick.
   const failureKey = fails.map((r) => r.id).join()
   const failuresAccepted = fails.length === 0 || props.ackFailures === failureKey
-  const warningsAccepted = warns.length === 0 || ackWarnings
+  // Like failures, ticking covers the warnings shown: a new or changed one needs a new tick.
+  const warningKey = warns.map((r) => `${r.id}:${r.detail}`).join('|')
+  const warningsAccepted = warns.length === 0 || ackWarnings === warningKey
   const ready = unconfirmed === 0 && failuresAccepted && warningsAccepted && pending.length === 0
   const failedNames = fails.map((r) => `“${r.label}”`).join(', ')
   const digital = spec.digital
@@ -129,7 +132,7 @@ export function CheckStep(props: Props) {
           ))}
           {warns.length > 0 && (
             <label className="checkbox checkbox--warn">
-              <input type="checkbox" checked={ackWarnings} onChange={(e) => props.onAckWarnings(e.target.checked)} />
+              <input type="checkbox" checked={ackWarnings === warningKey} onChange={(e) => props.onAckWarnings(e.target.checked ? warningKey : null)} />
               I’ve reviewed the warnings above and want to continue
             </label>
           )}
