@@ -1,4 +1,5 @@
 import { Component, type ReactNode } from 'react'
+import { VERSION_LABEL } from '../version'
 
 interface State {
   error: Error | null
@@ -28,6 +29,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
             Your photo never left this device. On a phone, closing other tabs before trying again often helps. If it keeps happening, the
             message above tells us what broke.
           </p>
+          <p className="muted small">{VERSION_LABEL}</p>
           <button type="button" className="btn btn--primary" onClick={() => location.reload()}>
             Start over
           </button>

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -67,9 +68,29 @@ function serviceWorker(): Plugin {
   }
 }
 
+/**
+ * The commit the build is made from, with "-dirty" if files have changed since, so a bug
+ * report can say exactly which build it came from; "unknown" outside a git checkout.
+ */
+function commit(): string {
+  const git = (...args: string[]) =>
+    execFileSync('git', args, { cwd: new URL('.', import.meta.url), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  try {
+    const hash = git('rev-parse', '--short=7', 'HEAD')
+    return git('status', '--porcelain') ? `${hash}-dirty` : hash
+  } catch {
+    return 'unknown'
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), contentSecurityPolicy(), serviceWorker()],
+  // Shown in the footer and on the error screen (see src/version.ts).
+  define: {
+    __APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(new URL('package.json', import.meta.url), 'utf8')).version),
+    __APP_COMMIT__: JSON.stringify(commit()),
+  },
   // Relative asset URLs so the static build works from any path (e.g. GitHub Pages).
   base: './',
 })

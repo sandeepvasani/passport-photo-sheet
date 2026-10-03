@@ -927,6 +927,14 @@ await scenario('MediaPipe’s usage statistics aren’t sent to Google', async (
   expect(sent.length === 0, `sent: ${sent.join(', ')}`)
 })
 
+await scenario('The footer shows the version and the commit the site was built from', async (page, expect) => {
+  const { version } = JSON.parse(readFileSync(join(images, '../package.json'), 'utf8'))
+  const footer = await page.locator('.app__footer').innerText()
+  const shown = footer.match(/Version (\S+) · build (\S+)/)
+  expect(shown?.[1] === version, `footer shows version ${shown?.[1]}, package.json has ${version}`)
+  expect(/^[0-9a-f]{7}(-dirty)?$/.test(shown?.[2]), `footer shows build ${shown?.[2]}`)
+})
+
 await browser.close()
 const failed = results.filter((r) => r.fails.length)
 console.log(`\n${results.length - failed.length} of ${results.length} scenarios passed`)

@@ -29,6 +29,7 @@ import { SETTINGS_KEY, startingSettings, type Settings } from './settings'
 import { renderSheet } from './lib/sheet'
 import type { FaceAnalysis } from './lib/vision'
 import { checkTodo, fixStep, type StepId } from './steps'
+import { VERSION_LABEL } from './version'
 
 const STEPS: StepDef<StepId>[] = [
   { id: 'upload', label: 'Upload' },
@@ -595,6 +596,7 @@ export default function App() {
           Not affiliated with any photo lab or government agency. Automatic checks help catch common problems but can’t guarantee
           acceptance. Always confirm the current rules with your issuing authority.
         </p>
+        <p>{VERSION_LABEL}</p>
       </footer>
     </div>
   )
