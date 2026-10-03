@@ -23,6 +23,11 @@ const PAD = 0.17
 
 type MarkerKey = Exclude<keyof Markers, 'faceWidthPx'>
 
+/** Order M steps through with the keyboard; null moves the photo. */
+const KEY_ORDER: (MarkerKey | null)[] = [null, 'crown', 'chin', 'eyeLeft', 'eyeRight']
+const MARKER_NAME: Record<MarkerKey, string> = { crown: 'top of head', chin: 'chin', eyeLeft: 'eye on the left', eyeRight: 'eye on the right' }
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+
 type Drag =
   | { kind: 'pan'; last: Point }
   | { kind: 'marker'; key: MarkerKey }
@@ -61,7 +66,10 @@ function viewFor(cssW: number, spec: PhotoSpec): View {
   return { cssW, cssH: frameH + 2 * pad, frameW, frameH, pad, vs }
 }
 
-/** Draws the editor: photo, dimmed surround, guides and markers. `fast` trades smoothing for speed mid-gesture. */
+/**
+ * Draws the editor: photo, dimmed surround, guides and markers. `fast` trades smoothing for speed mid-gesture;
+ * `selected` is the marker picked with the keyboard.
+ */
 function drawEditor(
   ctx: CanvasRenderingContext2D,
   image: LoadedImage,
@@ -71,6 +79,7 @@ function drawEditor(
   view: View,
   dpr: number,
   fast: boolean,
+  selected: MarkerKey | null,
 ) {
   const { cssW, cssH, frameW, frameH, pad, vs } = view
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -169,6 +178,16 @@ function drawEditor(
       ctx.fillStyle = '#facc15'
       ctx.fill()
     }
+    if (selected) {
+      const p = { crown: crownV, chin: chinV, eyeLeft: eL, eyeRight: eR }[selected]
+      ctx.strokeStyle = '#fff'
+      ctx.lineWidth = 2
+      ctx.setLineDash([3, 3])
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, 12, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
 
     // Head-height bracket to the right of the frame.
     const m = measure(markers, crop, spec)
@@ -224,6 +243,11 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
   const wheelTimer = useRef(0)
   const pointers = useRef(new Map<number, Point>())
   const drag = useRef<Drag | null>(null)
+  /** Marker picked with the keyboard (M); the arrow keys move it instead of the photo. */
+  const selected = useRef<MarkerKey | null>(null)
+  /** A marker was moved with the keys, and the parent hasn't been told the move is finished. */
+  const nudged = useRef(false)
+  const [announcement, setAnnouncement] = useState('')
 
   const draw = () => {
     const canvas = canvasRef.current
@@ -240,7 +264,7 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     if (canvas.width !== w) canvas.width = w
     if (canvas.height !== h) canvas.height = h
     try {
-      drawEditor(ctx, p.image, p.spec, live.current.crop, live.current.markers, p.view, p.dpr, interacting.current)
+      drawEditor(ctx, p.image, p.spec, live.current.crop, live.current.markers, p.view, p.dpr, interacting.current, selected.current)
     } catch (err) {
       console.error(err)
       setDrawError(`The photo couldn’t be drawn (${err instanceof Error ? err.message : String(err)}). Reload the page and try again.`)
@@ -319,18 +343,21 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
-  const hitTest = (v: Point): MarkerKey | null => {
+  const hitTest = (v: Point, touch = false): MarkerKey | null => {
     const { markers: m } = live.current
+    // A fingertip is less precise than a mouse pointer, so markers take a wider area.
+    const radius = touch ? 22 : 14
+    const band = touch ? 11 : 7
     const pts: [MarkerKey, Point][] = [
       ['eyeLeft', toView(m.eyeLeft)],
       ['eyeRight', toView(m.eyeRight)],
       ['crown', toView(m.crown)],
       ['chin', toView(m.chin)],
     ]
-    for (const [key, pt] of pts) if (Math.hypot(v.x - pt.x, v.y - pt.y) < 14) return key
+    for (const [key, pt] of pts) if (Math.hypot(v.x - pt.x, v.y - pt.y) < radius) return key
     if (v.x >= pad && v.x <= pad + frameW) {
       for (const key of ['crown', 'chin'] as const) {
-        if (Math.abs(v.y - toView(m[key]).y) < 7) return key
+        if (Math.abs(v.y - toView(m[key]).y) < band) return key
       }
     }
     return null
@@ -357,7 +384,7 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
       }
       return
     }
-    const key = hitTest(v)
+    const key = hitTest(v, e.pointerType === 'touch')
     drag.current = key ? { kind: 'marker', key } : { kind: 'pan', last: v }
     updateCursor(cursorFor(key, true))
   }
@@ -427,7 +454,49 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     return () => canvas.removeEventListener('wheel', onWheel)
   }, [])
 
+  /** Tells the parent a keyboard move of a marker is finished (so auto re-fit runs once, not per key repeat). */
+  const finishNudge = () => {
+    if (!nudged.current) return
+    nudged.current = false
+    setMarkers(live.current.markers, true)
+  }
+
+  const select = (key: MarkerKey | null) => {
+    finishNudge()
+    selected.current = key
+    setAnnouncement(
+      key
+        ? `Moving the ${MARKER_NAME[key]} marker. Arrow keys move it, M picks the next marker, Escape goes back to moving the photo.`
+        : 'Moving the photo.',
+    )
+    schedule()
+  }
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    const key = selected.current
+    if (e.key === 'm' || e.key === 'M') {
+      e.preventDefault()
+      select(KEY_ORDER[(KEY_ORDER.indexOf(key) + 1) % KEY_ORDER.length])
+      return
+    }
+    if (e.key === 'Escape' && key) {
+      e.preventDefault()
+      select(null)
+      return
+    }
+    const dir = ARROWS[e.key]
+    if (key && dir) {
+      e.preventDefault()
+      const { crop: c, markers: m } = live.current
+      const step = e.shiftKey ? 1 : 0.2
+      const q = sourceToFrame(m[key], c, spec)
+      // The top of the head and the chin only move up and down, as when dragged.
+      if (key === 'eyeLeft' || key === 'eyeRight') q.x += dir[0] * step
+      q.y += dir[1] * step
+      nudged.current = true
+      setMarkers({ ...m, [key]: frameToSource(q, c, spec) }, false)
+      return
+    }
     const c = live.current.crop
     const step = (e.shiftKey ? 2 : 0.4) * c.pxPerMm
     const { ux, uy } = axes(c.angle)
@@ -443,6 +512,18 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
     else if (e.key === '-') setCrop(transformCropAbout(c, eyesMid(), 1 / 1.02, 0))
   }
 
+  const onKeyUp = (e: React.KeyboardEvent) => {
+    if (ARROWS[e.key]) finishNudge()
+  }
+
+  const onBlur = () => {
+    finishNudge()
+    if (!selected.current) return
+    selected.current = null
+    setAnnouncement('')
+    schedule()
+  }
+
   return (
     <div ref={wrapRef} className="editor">
       {drawError && (
@@ -455,13 +536,18 @@ function CropEditor({ image, spec, markers, crop, onCrop, onMarkers }: EditorPro
         className="editor__canvas"
         style={{ width: view.cssW, height: view.cssH, cursor }}
         tabIndex={0}
-        aria-label="Photo crop editor. Drag to move the photo, use arrow keys to nudge, plus and minus to zoom."
+        aria-label="Photo crop editor. Drag to move the photo, use arrow keys to nudge, plus and minus to zoom. Press M to pick the top-of-head, chin or eye marker and move it with the arrow keys."
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown}
+        onKeyUp={onKeyUp}
+        onBlur={onBlur}
       />
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
     </div>
   )
 }
@@ -555,6 +641,7 @@ export function CropStep(props: StepProps) {
         <p className="muted small center">
           Drag to move · scroll or pinch to zoom · drag the <span className="swatch-text swatch-text--blue">blue lines</span> and{' '}
           <span className="swatch-text swatch-text--yellow">yellow eye markers</span> if they’re not exactly on the top of the hair, chin and pupils.
+          <span className="keyboard-hint"> With a keyboard: arrow keys move, + and − zoom, M picks a marker to move.</span>
         </p>
       </section>
 

@@ -88,7 +88,8 @@ export function loadModels(): Promise<Models> {
         FaceLandmarker.createFromOptions(fileset, {
           baseOptions: { modelAssetPath: `${BASE}models/face_landmarker.task`, delegate: 'CPU' },
           runningMode: 'IMAGE',
-          numFaces: 3,
+          // Enough for a family or small group, so nobody else in the frame goes unnoticed.
+          numFaces: 6,
           outputFaceBlendshapes: true,
           outputFacialTransformationMatrixes: true,
         }),

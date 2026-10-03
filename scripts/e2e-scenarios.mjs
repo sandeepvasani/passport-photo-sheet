@@ -1,7 +1,8 @@
 // End-to-end scenarios for things a plain walkthrough doesn't reach: failures (a
 // download the browser can't encode, a model that won't load, running out of canvas
-// memory), the Fix buttons, drag and drop, focus and reduced motion, preview memory,
-// and wording that follows the settings. Exits non-zero if any scenario fails. Usage:
+// memory), the Fix buttons, drag and drop, moving markers by keyboard and touch, focus
+// and reduced motion, Data Saver, group photos, preview memory, and wording that follows
+// the settings. Exits non-zero if any scenario fails. Usage:
 //   npm run build && npx vite preview --port 4173 &
 //   npm run e2e:scenarios                # all scenarios
 //   npm run e2e:scenarios -- download    # only those whose name contains "download"
@@ -20,10 +21,10 @@ const browser =
     : await chromium.launch(process.env.PW_CHANNEL === 'bundled' ? {} : { channel: 'chrome' })
 const results = []
 
-async function scenario(name, fn) {
+async function scenario(name, fn, pageOptions = {}) {
   if (only.length && !only.some((s) => name.toLowerCase().includes(s))) return
   // A short window, so the Check step's list runs below the fold.
-  const page = await browser.newPage({ viewport: { width: 1280, height: 700 }, acceptDownloads: true })
+  const page = await browser.newPage({ viewport: { width: 1280, height: 700 }, acceptDownloads: true, ...pageOptions })
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(e.message))
   // Records text drawn on canvases (the sheet's scale-bar label).
@@ -392,6 +393,136 @@ await scenario('The Upload step lists China’s face width and space above the h
   await pickSpec(page, /US Passport/)
   const us = await summary()
   expect(!us.includes('Face width') && !us.includes('Space above head') && !us.includes('guideline'), `US summary: ${us}`)
+})
+
+/** Reads the Crop step's head size (mm) and eye tilt (degrees). */
+const headSize = async (page) => parseFloat(await page.locator('.slider', { hasText: 'Head size' }).locator('output').innerText())
+const eyeTilt = async (page) => parseFloat((await page.locator('li.check', { hasText: 'Head level' }).innerText()).match(/tilted (-?[\d.]+)°/)?.[1])
+
+await scenario('Markers can be picked and moved with the keyboard', async (page, expect) => {
+  await pickSpec(page, /35 . 45 mm Passport/)
+  await upload(page, 'portrait.jpg')
+  const refit = page.getByLabel('Re-fit automatically after moving a marker')
+  const editor = page.locator('.editor__canvas')
+  const live = page.locator('.editor [aria-live]')
+  await refit.uncheck()
+  await editor.focus()
+
+  const fitted = await headSize(page)
+  await page.keyboard.press('m')
+  expect((await live.innerText()).includes('top of head'), `announced "${await live.innerText()}"`)
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown')
+  await page.waitForTimeout(100)
+  const moved = await headSize(page)
+  expect(Math.abs(moved - (fitted - 1)) < 0.11, `head ${fitted} → ${moved} mm after moving the top of head 1 mm down`)
+
+  await page.keyboard.press('Escape')
+  expect((await live.innerText()) === 'Moving the photo.', `announced "${await live.innerText()}"`)
+  await page.keyboard.press('ArrowDown')
+  await page.waitForTimeout(100)
+  expect((await headSize(page)) === moved, 'moving the photo changed the head size')
+
+  for (let i = 0; i < 3; i++) await page.keyboard.press('m')
+  expect((await live.innerText()).includes('eye on the left'), `announced "${await live.innerText()}"`)
+  await page.keyboard.press('Shift+ArrowUp')
+  await page.waitForTimeout(100)
+  expect(Math.abs(await eyeTilt(page)) > 2, `eyes tilted ${await eyeTilt(page)}° after moving one 1 mm up`)
+
+  // With re-fit on, letting go of the key re-fits, which levels the eyes again.
+  await refit.check()
+  await editor.focus()
+  await page.keyboard.press('m')
+  await page.keyboard.press('ArrowDown')
+  await page.waitForTimeout(200)
+  expect((await eyeTilt(page)) === 0, `eyes tilted ${await eyeTilt(page)}° after letting go of the key with re-fit on`)
+})
+
+await scenario(
+  'A finger grabs a marker from further away than a mouse does',
+  async (page, expect) => {
+    if (process.env.ENGINE === 'webkit') return console.log('      (touch input needs Chromium: skipped)')
+    await pickSpec(page, /35 . 45 mm Passport/)
+    await upload(page, 'portrait.jpg')
+    await page.getByLabel('Re-fit automatically after moving a marker').uncheck()
+    const editor = page.locator('.editor__canvas')
+    await editor.scrollIntoViewIfNeeded()
+    // The eye on the left: the yellow eye line and circles start 6 px left of its centre.
+    const eye = () =>
+      editor.evaluate((c) => {
+        const { data, width, height } = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+        let minX = Infinity
+        let sumY = 0
+        let n = 0
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4
+            if (data[i] > 235 && data[i + 1] > 190 && data[i + 1] < 220 && data[i + 2] < 60) {
+              minX = Math.min(minX, x)
+              sumY += y
+              n++
+            }
+          }
+        }
+        const r = c.getBoundingClientRect()
+        return { x: r.left + ((minX + 6.25) * r.width) / width, y: r.top + ((sumY / n) * r.height) / height }
+      })
+    expect((await eyeTilt(page)) === 0, 'eyes not level to start with')
+
+    // 18 px above the eye: outside a mouse's reach (14 px), so a mouse drag moves the photo.
+    let e = await eye()
+    await page.mouse.move(e.x, e.y - 18)
+    await page.mouse.down()
+    await page.mouse.move(e.x, e.y - 28, { steps: 4 })
+    await page.mouse.up()
+    await page.waitForTimeout(200)
+    expect((await eyeTilt(page)) === 0, `a mouse drag 18 px from the eye moved it (tilt ${await eyeTilt(page)}°)`)
+
+    // The same from a finger grabs the eye.
+    e = await eye()
+    const cdp = await page.context().newCDPSession(page)
+    const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] })
+    await touch('touchStart', e.x, e.y - 18)
+    await touch('touchMove', e.x, e.y - 24)
+    await touch('touchMove', e.x, e.y - 30)
+    await touch('touchEnd')
+    await page.waitForTimeout(200)
+    expect(Math.abs(await eyeTilt(page)) > 2, `a touch 18 px from the eye didn't move it (tilt ${await eyeTilt(page)}°)`)
+  },
+  { hasTouch: true },
+)
+
+await scenario('With Data Saver on, the expression model isn’t downloaded and nothing waits for it', async (page, expect) => {
+  const model = /emotion-ferplus|ort-wasm/
+  // Without Data Saver (in a separate browser context, so nothing is cached), the model is fetched.
+  const control = await browser.newPage({ viewport: { width: 1280, height: 700 } })
+  await control.goto(url)
+  const fetched = control.waitForRequest(model, { timeout: 120_000 }).then(() => true, () => false)
+  await upload(control, 'portrait.jpg')
+  expect(await fetched, 'the expression model wasn’t fetched without Data Saver either')
+  await control.close()
+
+  const requested = []
+  page.on('request', (r) => model.test(r.url()) && requested.push(r.url()))
+  await page.addInitScript(() => Object.defineProperty(navigator, 'connection', { value: { saveData: true } }))
+  await page.goto(url)
+  await pickSpec(page, /35 . 45 mm Passport/)
+  await upload(page, 'portrait.jpg')
+  await page.getByRole('button', { name: /Next: Background/ }).click()
+  await page.getByRole('button', { name: /Next: Print layout/ }).click()
+  await page.getByRole('button', { name: /Next: Check/ }).click()
+  await page.waitForTimeout(300)
+  expect((await page.locator('.status-icon--pending').count()) === 0, 'a check is waiting for the expression model')
+  // The face mesh still catches the smile.
+  const expression = await page.locator('li.check', { hasText: 'Neutral expression' }).innerText()
+  expect(expression.includes('smiling'), `expression check: ${expression}`)
+  await page.waitForTimeout(2000)
+  expect(requested.length === 0, `fetched with Data Saver on: ${requested.join(', ')}`)
+})
+
+await scenario('Everyone in a group photo can be picked', async (page, expect) => {
+  await upload(page, 'group.jpg')
+  const people = await page.locator('.subject-picker [role=radio]').count()
+  expect(people === 4, `${people} of the 4 people offered`)
 })
 
 await browser.close()

@@ -41,6 +41,9 @@ const defaultBackground = (spec: PhotoSpec): BackgroundSettings => ({
 
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
 
+/** The browser is set to use less data (Data Saver in Chrome and on Android). */
+const saveData = () => !!(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
+
 const NO_FACE_ERROR: UploadError = {
   message: 'We couldn’t find a face in this photo. Please try a different one:',
   tips: [
@@ -111,8 +114,9 @@ export default function App() {
   }, [session, crop, spec, matteStatus])
 
   // Score the expression in the background; the model downloads while the photo is being cropped.
+  // It's 19 MB plus ONNX Runtime, so it's skipped when the browser is set to save data.
   useEffect(() => {
-    if (!session) return
+    if (!session || saveData()) return
     let cancelled = false
     scoreExpression(session.image, session.analysis.landmarks).then(
       (scores) => !cancelled && setExpression({ analysis: session.analysis, scores }),
@@ -127,7 +131,11 @@ export default function App() {
     }
   }, [session])
   const expressionScores =
-    !session || expressionFailedFor === session.analysis ? null : expression?.analysis === session.analysis ? expression.scores : 'pending'
+    !session || saveData() || expressionFailedFor === session.analysis
+      ? null
+      : expression?.analysis === session.analysis
+        ? expression.scores
+        : 'pending'
 
   const subject = useMemo(() => (markers ? midpoint(markers.eyeLeft, markers.eyeRight) : undefined), [markers])
   const masks = useMemo(
